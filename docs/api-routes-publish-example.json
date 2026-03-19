@@ -1,0 +1,25 @@
+{
+  "title": "金門大橋往返",
+  "totalDistance": 12500,
+  "totalAscent": 320,
+  "waypoints": [
+    {
+      "lat": "37.8199",
+      "lon": "-122.4783",
+      "elevation": 12.5,
+      "timestamp": 1710763200000
+    },
+    {
+      "lat": "37.8270",
+      "lon": "-122.4230",
+      "elevation": 18.2,
+      "timestamp": 1710766800000
+    },
+    {
+      "lat": "37.8199",
+      "lon": "-122.4783",
+      "elevation": 12.8,
+      "timestamp": 1710770400000
+    }
+  ]
+}

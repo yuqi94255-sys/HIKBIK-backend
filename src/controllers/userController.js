@@ -1,0 +1,140 @@
+const User = require('../models/User');
+const { ok, fail } = require('../utils/response');
+const { keysToSnakeCase } = require('../utils/snakeCase');
+
+const ALLOWED_PROFILE_FIELDS = ['nickname', 'bio', 'avatarUrl'];
+const NICKNAME_MIN = 1;
+const NICKNAME_MAX = 30;
+const BIO_MAX = 500;
+const AVATAR_URL_MAX = 2048;
+
+/**
+ * GET /api/users/me
+ */
+async function getProfile(req, res) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, '未授權', 401);
+
+    const user = await User.findById(userId).lean();
+    if (!user) return fail(res, '用戶不存在', 404);
+
+    return ok(res, keysToSnakeCase({
+      id: user._id.toString(),
+      nickname: user.nickname ?? 'Explorer',
+      avatarUrl: user.avatarUrl ?? '',
+      bio: user.bio ?? '',
+      followingCount: user.followingCount ?? 0,
+      followersCount: user.followersCount ?? 0,
+      totalDistanceMeters: user.totalDistanceMeters ?? 0,
+    }));
+  } catch (err) {
+    console.error('getProfile error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+/**
+ * PATCH /api/users/me
+ * 允許更新 nickname, bio, avatarUrl
+ */
+async function updateProfile(req, res) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, '未授權', 401);
+
+    const updates = {};
+    for (const key of ALLOWED_PROFILE_FIELDS) {
+      if (req.body[key] !== undefined) {
+        updates[key] = typeof req.body[key] === 'string' ? req.body[key].trim() : req.body[key];
+      }
+    }
+    if (Object.keys(updates).length === 0) {
+      return fail(res, '請提供 nickname、bio 或 avatarUrl 至少一項', 400);
+    }
+    if (updates.nickname !== undefined) {
+      if (typeof updates.nickname !== 'string' || updates.nickname.length < NICKNAME_MIN) {
+        return fail(res, '暱稱不可為空', 400);
+      }
+      if (updates.nickname.length > NICKNAME_MAX) {
+        return fail(res, `暱稱不可超過 ${NICKNAME_MAX} 字`, 400);
+      }
+    }
+    if (updates.bio !== undefined) {
+      const bio = typeof updates.bio === 'string' ? updates.bio : String(updates.bio);
+      if (bio.length > BIO_MAX) return fail(res, `簡介不可超過 ${BIO_MAX} 字`, 400);
+      updates.bio = bio;
+    }
+    if (updates.avatarUrl !== undefined) {
+      const url = typeof updates.avatarUrl === 'string' ? updates.avatarUrl : String(updates.avatarUrl);
+      if (url.length > AVATAR_URL_MAX) return fail(res, `頭像網址不可超過 ${AVATAR_URL_MAX} 字`, 400);
+      updates.avatarUrl = url;
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $set: updates },
+      { new: true, runValidators: true }
+    ).lean();
+    if (!user) return fail(res, '用戶不存在', 404);
+
+    return ok(res, keysToSnakeCase({
+      id: user._id.toString(),
+      nickname: user.nickname ?? 'Explorer',
+      avatarUrl: user.avatarUrl ?? '',
+      bio: user.bio ?? '',
+      followingCount: user.followingCount ?? 0,
+      followersCount: user.followersCount ?? 0,
+      totalDistanceMeters: user.totalDistanceMeters ?? 0,
+    }));
+  } catch (err) {
+    console.error('updateProfile error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+/**
+ * GET /api/users/:id
+ * 回傳用戶 profile 詳情（following_count, followers_count）
+ */
+async function getPublicProfile(req, res) {
+  try {
+    const id = req.params?.id;
+    if (!id) return fail(res, '缺少用戶 id', 400);
+    const user = await User.findById(id).select('nickname avatarUrl bio followingCount followersCount totalDistanceMeters').lean();
+    if (!user) return fail(res, '用戶不存在', 404);
+    return ok(res, keysToSnakeCase({
+      id: user._id.toString(),
+      nickname: user.nickname ?? 'Explorer',
+      avatar_url: user.avatarUrl ?? '',
+      bio: user.bio ?? '',
+      following_count: user.followingCount ?? 0,
+      followers_count: user.followersCount ?? 0,
+      total_distance_meters: user.totalDistanceMeters ?? 0,
+    }));
+  } catch (err) {
+    console.error('getPublicProfile error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+/**
+ * POST /api/users/:id/follow
+ * 當前用戶關注 :id（Toggle：已關注則取消）
+ */
+async function followUser(req, res) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, '未授權', 401);
+    const targetUserId = req.params?.id;
+    if (!targetUserId || userId === targetUserId) return fail(res, '無效的目標用戶', 400);
+    req.body = { ...(req.body || {}), targetUserId };
+    const { toggleFollow } = require('./socialController');
+    return toggleFollow(req, res);
+  } catch (err) {
+    console.error('followUser error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+module.exports = { getProfile, updateProfile, getPublicProfile, followUser };

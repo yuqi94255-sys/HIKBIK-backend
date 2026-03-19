@@ -1,0 +1,33 @@
+{
+  "name": "hikbik-server",
+  "version": "1.0.0",
+  "description": "HIKBIK backend - North America (San Francisco) bike rental API",
+  "main": "server.js",
+  "scripts": {
+    "start": "npx kill-port 3000 && node server.js",
+    "start:no-kill": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "bike",
+    "rental",
+    "san-francisco"
+  ],
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.13.6",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.9.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "express-rate-limit": "^8.3.1",
+    "google-auth-library": "^9.15.1",
+    "jsonwebtoken": "^9.0.3",
+    "kill-port": "^2.0.1",
+    "mongoose": "^8.23.0",
+    "node-cache": "^5.1.2",
+    "resend": "^6.9.4",
+    "stripe": "^17.2.0"
+  }
+}
