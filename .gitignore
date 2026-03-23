@@ -3,3 +3,5 @@ node_modules/
 KEYS_BACKUP.txt
 *.log
 .DS_Store
+uploads/*
+!uploads/.gitkeep

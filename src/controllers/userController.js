@@ -2,7 +2,24 @@ const User = require('../models/User');
 const { ok, fail } = require('../utils/response');
 const { keysToSnakeCase } = require('../utils/snakeCase');
 
-const ALLOWED_PROFILE_FIELDS = ['nickname', 'bio', 'avatarUrl'];
+/** GET /api/users/me 等回傳給前端的 profile 欄位（camelCase，含真實 email / firstName / lastName / avatarUrl） */
+function profilePayload(user) {
+  if (!user) return null;
+  return {
+    id: user._id.toString(),
+    email: user.email ?? '',
+    firstName: user.firstName ?? '',
+    lastName: user.lastName ?? '',
+    nickname: user.nickname ?? 'Explorer',
+    avatarUrl: user.avatarUrl ?? '',
+    bio: user.bio ?? '',
+    followingCount: user.followingCount ?? 0,
+    followersCount: user.followersCount ?? 0,
+    totalDistanceMeters: user.totalDistanceMeters ?? 0,
+  };
+}
+
+const ALLOWED_PROFILE_FIELDS = ['firstName', 'lastName', 'nickname', 'bio', 'avatarUrl'];
 const NICKNAME_MIN = 1;
 const NICKNAME_MAX = 30;
 const BIO_MAX = 500;
@@ -19,15 +36,7 @@ async function getProfile(req, res) {
     const user = await User.findById(userId).lean();
     if (!user) return fail(res, '用戶不存在', 404);
 
-    return ok(res, keysToSnakeCase({
-      id: user._id.toString(),
-      nickname: user.nickname ?? 'Explorer',
-      avatarUrl: user.avatarUrl ?? '',
-      bio: user.bio ?? '',
-      followingCount: user.followingCount ?? 0,
-      followersCount: user.followersCount ?? 0,
-      totalDistanceMeters: user.totalDistanceMeters ?? 0,
-    }));
+    return ok(res, profilePayload(user));
   } catch (err) {
     console.error('getProfile error:', err);
     return fail(res, '服務暫時不可用', 503);
@@ -36,21 +45,43 @@ async function getProfile(req, res) {
 
 /**
  * PATCH /api/users/me
- * 允許更新 nickname, bio, avatarUrl
+ * 允許更新 firstName, lastName, nickname, bio, avatarUrl
  */
 async function updateProfile(req, res) {
   try {
     const userId = req.user?.id;
     if (!userId) return fail(res, '未授權', 401);
 
+    const body = req.body || {};
+    const normalizedBody = {
+      ...body,
+      firstName: body.firstName ?? body.first_name,
+      lastName: body.lastName ?? body.last_name,
+      avatarUrl: body.avatarUrl ?? body.avatar_url,
+    };
+
     const updates = {};
     for (const key of ALLOWED_PROFILE_FIELDS) {
-      if (req.body[key] !== undefined) {
-        updates[key] = typeof req.body[key] === 'string' ? req.body[key].trim() : req.body[key];
+      if (normalizedBody[key] !== undefined) {
+        updates[key] =
+          typeof normalizedBody[key] === 'string'
+            ? normalizedBody[key].trim()
+            : normalizedBody[key];
       }
     }
     if (Object.keys(updates).length === 0) {
-      return fail(res, '請提供 nickname、bio 或 avatarUrl 至少一項', 400);
+      return fail(res, '請提供 firstName、lastName、nickname、bio 或 avatarUrl 至少一項', 400);
+    }
+    console.log(
+      `[UPDATE] 用戶正在更新：firstName: ${updates.firstName ?? '(unchanged)'}, bio: ${updates.bio ?? '(unchanged)'}`
+    );
+    if (updates.firstName !== undefined) {
+      if (typeof updates.firstName !== 'string') return fail(res, 'firstName 格式錯誤', 400);
+      if (updates.firstName.length > 50) return fail(res, 'firstName 不可超過 50 字', 400);
+    }
+    if (updates.lastName !== undefined) {
+      if (typeof updates.lastName !== 'string') return fail(res, 'lastName 格式錯誤', 400);
+      if (updates.lastName.length > 50) return fail(res, 'lastName 不可超過 50 字', 400);
     }
     if (updates.nickname !== undefined) {
       if (typeof updates.nickname !== 'string' || updates.nickname.length < NICKNAME_MIN) {
@@ -78,18 +109,41 @@ async function updateProfile(req, res) {
     ).lean();
     if (!user) return fail(res, '用戶不存在', 404);
 
-    return ok(res, keysToSnakeCase({
-      id: user._id.toString(),
-      nickname: user.nickname ?? 'Explorer',
-      avatarUrl: user.avatarUrl ?? '',
-      bio: user.bio ?? '',
-      followingCount: user.followingCount ?? 0,
-      followersCount: user.followersCount ?? 0,
-      totalDistanceMeters: user.totalDistanceMeters ?? 0,
-    }));
+    return ok(res, profilePayload(user));
   } catch (err) {
     console.error('updateProfile error:', err);
     return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+/**
+ * POST /api/users/avatar
+ * multipart: field name = avatar
+ */
+async function uploadAvatar(req, res) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, '未授權', 401);
+    if (!req.file) {
+      return fail(res, '請以 multipart/form-data 上傳欄位 avatar（檔案）', 400);
+    }
+
+    const relPath = `/uploads/${req.file.filename}`;
+    const updated = await User.findByIdAndUpdate(
+      userId,
+      { $set: { avatarUrl: relPath } },
+      { new: true, runValidators: true }
+    ).lean();
+
+    if (!updated) return fail(res, '用戶不存在', 404);
+
+    return ok(res, {
+      avatarUrl: relPath,
+      user: profilePayload(updated),
+    });
+  } catch (err) {
+    console.error('uploadAvatar error:', err);
+    return fail(res, err.message || '上傳失敗', 500);
   }
 }
 
@@ -137,4 +191,4 @@ async function followUser(req, res) {
   }
 }
 
-module.exports = { getProfile, updateProfile, getPublicProfile, followUser };
+module.exports = { getProfile, updateProfile, uploadAvatar, getPublicProfile, followUser };

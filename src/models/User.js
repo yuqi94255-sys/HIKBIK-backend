@@ -1,4 +1,12 @@
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+
+/** 與全專案 bcryptjs 一致（register、腳本、登入比對皆用此輪數） */
+const BCRYPT_SALT_ROUNDS = 10;
+
+function isBcryptHash(value) {
+  return typeof value === 'string' && /^\$2[aby]\$/.test(value);
+}
 
 const userSchema = new mongoose.Schema(
   {
@@ -12,6 +20,16 @@ const userSchema = new mongoose.Schema(
     nickname: {
       type: String,
       default: 'Explorer',
+      trim: true,
+    },
+    firstName: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    lastName: {
+      type: String,
+      default: '',
       trim: true,
     },
     avatarUrl: {
@@ -87,5 +105,35 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+/**
+ * 新建或修改 password 時自動 bcrypt 雜湊（僅 bcryptjs，與控制器一致）
+ * - 明文：寫入前 hash
+ * - 已是 $2a$/$2b$/$2y$ 格式：不重複 hash（相容舊資料與腳本直接寫入的 hash）
+ * - null / 空字串：保持 null（OAuth、僅 OTP 用戶可無密碼）
+ */
+userSchema.pre('save', async function hashPasswordPreSave(next) {
+  if (!this.isModified('password')) {
+    return next();
+  }
+  const pwd = this.password;
+  if (pwd == null || pwd === '') {
+    this.password = null;
+    return next();
+  }
+  if (typeof pwd !== 'string') {
+    return next(new Error('password 必須為字串'));
+  }
+  if (isBcryptHash(pwd)) {
+    return next();
+  }
+  try {
+    this.password = await bcrypt.hash(pwd, BCRYPT_SALT_ROUNDS);
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+});
+
 const User = mongoose.models.User || mongoose.model('User', userSchema);
+User.BCRYPT_SALT_ROUNDS = BCRYPT_SALT_ROUNDS;
 module.exports = User;

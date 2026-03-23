@@ -156,8 +156,11 @@ async function sendOTP(req, res) {
       message: '',
     });
   } catch (err) {
-    const status = Number(err.status) || 503;
-    const msg = err.message || '發送驗證碼失敗';
+    console.error('sendOTP 失敗:', err);
+    const status = Number(err.status) >= 400 ? Number(err.status) : 503;
+    const msg =
+      err?.message ||
+      (err && typeof err === 'object' ? JSON.stringify(err) : String(err));
     return res.status(status).json({
       success: false,
       data: null,
@@ -175,28 +178,31 @@ async function verifyOTP(req, res) {
   const code = req.body?.code?.trim();
   if (!email || !code) {
     return res.status(400).json({
-      success: false,
-      data: null,
-      error: '請提供 email 與 code',
       message: '請提供 email 與 code',
     });
   }
 
   try {
     const { token, userPayload } = await verifyVerificationCode(email, code);
-    return res.json({
+    // 標準、乾淨 JSON（僅 success + token + user；isExistingUser 在 user 內）
+    return res.status(200).json({
       success: true,
-      data: { token, user: userPayload },
-      message: '',
       token,
       user: userPayload,
     });
   } catch (err) {
-    const status = Number(err.status) || 401;
-    const msg = err.message || '驗證失敗';
+    if (err.missingBody) {
+      return res.status(400).json({ message: err.message || '請提供 email 與 code' });
+    }
+    if (err.invalidCode) {
+      console.error('verifyOTP 比對失敗:', err);
+      return res.status(400).json({ message: 'Invalid code' });
+    }
+    console.error('verifyOTP 錯誤:', err);
+    const status = Number(err.status) >= 400 ? Number(err.status) : 503;
+    const msg = err.message || '服務暫時不可用';
     return res.status(status).json({
       success: false,
-      data: null,
       error: msg,
       message: msg,
     });
@@ -301,33 +307,29 @@ async function appleLogin(req, res) {
 // ---------------------------------------------------------------------------
 async function register(req, res) {
   const { email, password, name } = req.body;
-  if (!email || !password) {
+  const safeEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  const plainPassword =
+    password === undefined || password === null ? '' : String(password).trim();
+
+  if (!safeEmail || !plainPassword) {
     return res.status(400).json({
       success: false,
       data: null,
-      error: '請提供 email 與 password',
-      message: '請提供 email 與 password',
+      error: '請提供有效的 email 與 password（不可為空字串）',
+      message: '請提供有效的 email 與 password（不可為空字串）',
     });
   }
-  const safeEmail = email.toLowerCase();
 
   try {
-    const existing = await User.findOne({ email: safeEmail });
-    if (existing) {
-      return res.status(409).json({
-        success: false,
-        data: null,
-        error: '該 email 已註冊',
-        message: '該 email 已註冊',
-      });
-    }
+    // 老闆指令：先刪同 email 再註冊；另以 safeEmail 再刪一次，避免大小寫與 DB 不一致刪不到
+    await User.deleteMany({ email: req.body.email });
+    await User.deleteMany({ email: safeEmail });
 
-    const saltRounds = 10;
-    const passwordHash = await bcrypt.hash(password, saltRounds);
+    // 傳入明文；User pre('save') 會用 bcryptjs 雜湊後再存
     const user = await User.create({
       email: safeEmail,
       nickname: name || safeEmail,
-      password: passwordHash,
+      password: plainPassword,
       is_verified: false,
     });
 
@@ -347,29 +349,17 @@ async function register(req, res) {
       user: userPayload,
     });
   } catch (err) {
-    // DB 不可用時：回退到 mock（維持開發流程不阻塞）
-    if (mockUsers.has(safeEmail)) {
-      return res.status(409).json({
-        success: false,
-        data: null,
-        error: '該 email 已註冊',
-        message: '該 email 已註冊',
-      });
-    }
-
-    const saltRounds = 10;
-    const passwordHash = await bcrypt.hash(password, saltRounds);
-    const id = `user-email-${Date.now()}`;
-    mockUsers.set(safeEmail, { id, email: safeEmail, passwordHash, name: name || safeEmail });
-
-    const token = generateToken({ id, email: safeEmail, provider: 'email' });
-    const userPayload = { id, email: safeEmail, name: name || safeEmail, provider: 'email' };
-    return res.status(201).json({
-      success: true,
-      data: { token, user: userPayload },
-      message: '',
-      token,
-      user: userPayload,
+    console.error('register 失敗（完整錯誤物件）:', err);
+    if (err && err.stack) console.error(err.stack);
+    const status = Number(err.statusCode) >= 400 ? Number(err.statusCode) : 500;
+    return res.status(status).json({
+      success: false,
+      data: null,
+      error: err.message || String(err),
+      message: err.message || String(err),
+      name: err.name,
+      code: err.code,
+      ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
     });
   }
 }
@@ -392,6 +382,12 @@ async function login(req, res) {
   try {
     const user = await User.findOne({ email: safeEmail });
     if (!user || !user.password) {
+      console.log(
+        '[DEBUG] 用戶輸入的密碼長度:',
+        password != null ? String(password).length : 0
+      );
+      console.log('[DEBUG] 資料庫存的 Hash:', user ? user.password : '(無此用戶或無 password)');
+      console.log('[DEBUG] 比對結果:', '(略過，無 hash 可比)');
       return res.status(401).json({
         success: false,
         data: null,
@@ -400,7 +396,10 @@ async function login(req, res) {
       });
     }
 
+    console.log('[DEBUG] 用戶輸入的密碼長度:', String(password).length);
+    console.log('[DEBUG] 資料庫存的 Hash:', user.password);
     const valid = await bcrypt.compare(password, user.password);
+    console.log('[DEBUG] 比對結果:', valid);
     if (!valid) {
       return res.status(401).json({
         success: false,
@@ -436,7 +435,10 @@ async function login(req, res) {
       });
     }
 
+    console.log('[DEBUG] 用戶輸入的密碼長度:', String(password).length);
+    console.log('[DEBUG] 資料庫存的 Hash (mock):', mockUser.passwordHash);
     const valid = await bcrypt.compare(password, mockUser.passwordHash);
+    console.log('[DEBUG] 比對結果:', valid);
     if (!valid) {
       return res.status(401).json({
         success: false,

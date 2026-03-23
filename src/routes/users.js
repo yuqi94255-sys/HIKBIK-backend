@@ -1,11 +1,13 @@
 const express = require('express');
-const { getProfile, updateProfile, getPublicProfile, followUser } = require('../controllers/userController');
+const { getProfile, updateProfile, uploadAvatar, getPublicProfile, followUser } = require('../controllers/userController');
 const { verifyJWT } = require('../middleware/authMiddleware');
+const { upload } = require('../middleware/uploadAvatar');
 
 const router = express.Router();
 
 router.get('/me', verifyJWT, getProfile);
 router.patch('/me', verifyJWT, updateProfile);
+router.post('/avatar', verifyJWT, upload.single('avatar'), uploadAvatar);
 router.get('/:id', getPublicProfile);
 router.post('/:id/follow', verifyJWT, followUser);
 
