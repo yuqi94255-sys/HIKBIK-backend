@@ -1,9 +1,12 @@
 const express = require('express');
-const { toggleLike, toggleFollow, publishSocialPost } = require('../controllers/socialController');
+const { toggleLike, toggleFollow, publishSocialPost, getFeed } = require('../controllers/socialController');
 const { verifyJWT } = require('../middleware/authMiddleware');
 const { uploadCloud } = require('../middleware/cloudinaryConfig');
 
 const router = express.Router();
+
+/** 社群廣場卡片流（無需 JWT；?limit=1–100，預設 50） */
+router.get('/feed', getFeed);
 
 /** 社群發佈（對齊 SocialPublishService） */
 router.post('/publish', verifyJWT, publishSocialPost);

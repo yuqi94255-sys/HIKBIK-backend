@@ -19,6 +19,47 @@ function normalizePublishPayload(raw) {
   return null;
 }
 
+/** 將 summary 轉為 JSON 安全格式（ObjectId → string） */
+function summaryToFeedJson(summary, postId) {
+  if (!summary || typeof summary !== 'object') return {};
+  const s = { ...summary };
+  s.id = s.id || postId;
+  if (s.authorId != null && typeof s.authorId === 'object' && s.authorId.toString) {
+    s.authorId = s.authorId.toString();
+  }
+  return s;
+}
+
+/**
+ * GET /api/social/feed
+ * 回傳社群廣場卡片列表（每項含 postCategory + 完整 summary，供 GrandJourney / DetailedTrack）
+ */
+async function getFeed(req, res) {
+  try {
+    const rawLimit = parseInt(String(req.query.limit ?? '50'), 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 50;
+
+    const docs = await Post.find({})
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .select('postCategory summary createdAt')
+      .lean();
+
+    const feed = docs.map((doc) => {
+      const postId = doc._id.toString();
+      return {
+        postCategory: doc.postCategory,
+        ...summaryToFeedJson(doc.summary, postId),
+      };
+    });
+
+    return ok(res, feed);
+  } catch (err) {
+    console.error('getFeed error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
 /**
  * POST /api/social/publish
  * Body: { postCategory, payload }（payload 可為物件或 JSON 字串）
@@ -218,4 +259,4 @@ async function toggleFollow(req, res) {
   }
 }
 
-module.exports = { toggleLike, toggleFollow, publishSocialPost };
+module.exports = { toggleLike, toggleFollow, publishSocialPost, getFeed };
