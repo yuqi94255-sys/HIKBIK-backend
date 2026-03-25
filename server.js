@@ -155,7 +155,7 @@ async function start() {
       console.log(`  - POST /api/routes/upload、/api/routes/publish  上傳/發佈路線（需 JWT）`);
       console.log(`  - GET/PATCH /api/users/me、POST /api/users/avatar  用戶資料/頭像（需 JWT）`);
       console.log(`  - GET  /uploads/...  上傳檔靜態服務`);
-      console.log(`  - POST /api/social/toggle-like、toggle-follow（需 JWT）`);
+      console.log(`  - POST /api/social/toggle-like、toggle-follow、upload-image（需 JWT）`);
       console.log(`  - GET/POST/PATCH/DELETE /api/routes/:id/reviews  評論 CRUD`);
       console.log(`  - /api/integration/travel, /shop, /tools  插件化服務（Mock 待對接）`);
       return;

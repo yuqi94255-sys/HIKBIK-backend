@@ -29,6 +29,7 @@
     "kill-port": "^2.0.1",
     "mongoose": "^8.23.0",
     "multer": "^2.1.1",
+    "multer-storage-cloudinary": "^4.0.0",
     "node-cache": "^5.1.2",
     "resend": "^6.9.4",
     "stripe": "^17.2.0"
