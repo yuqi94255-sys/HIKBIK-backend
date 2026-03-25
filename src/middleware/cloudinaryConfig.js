@@ -1,6 +1,8 @@
 /**
  * Cloudinary 上傳（僅讀環境變數，金鑰不寫死在代碼）
  * 支援 CLOUDINARY_URL 或 CLOUDINARY_CLOUD_NAME + CLOUDINARY_API_KEY + CLOUDINARY_API_SECRET
+ *
+ * 與前端 multipart 對齊：欄位名必須為 **file**（見 uploadCloud.single('file')）
  */
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');

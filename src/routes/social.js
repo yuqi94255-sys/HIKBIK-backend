@@ -1,9 +1,12 @@
 const express = require('express');
-const { toggleLike, toggleFollow } = require('../controllers/socialController');
+const { toggleLike, toggleFollow, publishSocialPost } = require('../controllers/socialController');
 const { verifyJWT } = require('../middleware/authMiddleware');
 const { uploadCloud } = require('../middleware/cloudinaryConfig');
 
 const router = express.Router();
+
+/** 社群發佈（對齊 SocialPublishService） */
+router.post('/publish', verifyJWT, publishSocialPost);
 
 router.post('/toggle-like', verifyJWT, toggleLike);
 router.post('/toggle-follow', verifyJWT, toggleFollow);

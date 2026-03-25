@@ -7,7 +7,8 @@
     "start": "npx kill-port 3000 && node server.js",
     "start:no-kill": "node server.js",
     "dev": "NODE_ENV=development node server.js",
-    "fix-password": "node scripts/fix-user-password-once.js"
+    "fix-password": "node scripts/fix-user-password-once.js",
+    "verify-align": "node scripts/verify-align.js"
   },
   "keywords": [
     "bike",

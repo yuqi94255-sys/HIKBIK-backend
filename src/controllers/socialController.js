@@ -1,8 +1,100 @@
 const User = require('../models/User');
 const Route = require('../models/Route');
+const Post = require('../models/Post');
 const mongoose = require('mongoose');
 const { ok, fail } = require('../utils/response');
 const { keysToSnakeCase } = require('../utils/snakeCase');
+const { buildSummaryForPublish } = require('../utils/socialPublishSummary');
+
+function normalizePublishPayload(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * POST /api/social/publish
+ * Body: { postCategory, payload }（payload 可為物件或 JSON 字串）
+ */
+async function publishSocialPost(req, res) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: '未授權' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ success: false, message: '無效的用戶 id' });
+    }
+
+    const postCategory = req.body?.postCategory;
+    const rawPayload = req.body?.payload;
+
+    if (postCategory !== 'COMMUNITY_MACRO' && postCategory !== 'COMMUNITY_MICRO') {
+      return res.status(400).json({
+        success: false,
+        message: 'postCategory 必須為 COMMUNITY_MACRO 或 COMMUNITY_MICRO',
+      });
+    }
+
+    const payload = normalizePublishPayload(rawPayload);
+    if (payload == null || typeof payload !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: '請提供有效的 payload（物件或 JSON 字串）',
+      });
+    }
+
+    const user = await User.findById(userId)
+      .select('nickname firstName lastName avatarUrl bio')
+      .lean();
+    if (!user) {
+      return res.status(404).json({ success: false, message: '用戶不存在' });
+    }
+
+    const displayName =
+      [user.firstName, user.lastName].filter(Boolean).join(' ').trim() ||
+      (user.nickname || '').trim() ||
+      'Explorer';
+
+    const postId = new mongoose.Types.ObjectId();
+    const plain = buildSummaryForPublish(postCategory, payload, {
+      postId: postId.toString(),
+      authorId: userId,
+      authorName: displayName,
+      authorAvatarUrl: user.avatarUrl || '',
+      authorSubtitle: user.bio || '',
+    });
+
+    const post = await Post.create({
+      _id: postId,
+      author: userId,
+      postCategory,
+      renderData: payload,
+      summary: {
+        ...plain,
+        authorId: new mongoose.Types.ObjectId(userId),
+      },
+    });
+
+    return res.status(201).json({
+      success: true,
+      postId: post._id.toString(),
+    });
+  } catch (err) {
+    console.error('publishSocialPost error:', err);
+    return res.status(400).json({
+      success: false,
+      message: err.message || '發佈失敗',
+    });
+  }
+}
 
 /**
  * POST /api/social/toggle-like
@@ -126,4 +218,4 @@ async function toggleFollow(req, res) {
   }
 }
 
-module.exports = { toggleLike, toggleFollow };
+module.exports = { toggleLike, toggleFollow, publishSocialPost };
