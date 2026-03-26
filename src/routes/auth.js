@@ -8,6 +8,8 @@ const {
   verifyOTP,
   checkEmail,
 } = require('../controllers/authController');
+const { verifyJWT } = require('../middleware/authMiddleware');
+const { updateProfile } = require('../controllers/userController');
 
 const router = express.Router();
 
@@ -32,5 +34,8 @@ router.get('/me', (req, res) => {
 router.patch('/me', (req, res) => {
   return res.redirect(308, '/api/users/me');
 });
+
+/** PATCH body 會隨請求轉發；與 /api/users/profile 相同（updateProfile + profilePayload） */
+router.patch('/profile', verifyJWT, updateProfile);
 
 module.exports = router;

@@ -44,8 +44,9 @@ async function getProfile(req, res) {
 }
 
 /**
- * PATCH /api/users/me
- * 允許更新 firstName, lastName, nickname, bio, avatarUrl
+ * PATCH /api/users/me、PATCH /api/users/profile、PATCH /api/auth/profile
+ * 允許更新 firstName, lastName, nickname, bio, avatarUrl（MongoDB 欄位皆小駝峰）
+ * 成功回傳 { success, data: profilePayload, message }，與 GET /me 同形，供 decodeUserProfileFromAPIBody
  */
 async function updateProfile(req, res) {
   try {
