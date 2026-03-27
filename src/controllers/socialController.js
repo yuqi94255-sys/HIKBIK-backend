@@ -62,7 +62,7 @@ async function getFeed(req, res) {
 
 /**
  * POST /api/social/publish
- * Body: { postCategory, payload }（payload 可為物件或 JSON 字串）
+ * Body: { postCategory, payload, coverImageUrl?, imageUrls? }（payload 可為物件或 JSON 字串）
  */
 async function publishSocialPost(req, res) {
   try {
@@ -74,8 +74,12 @@ async function publishSocialPost(req, res) {
       return res.status(400).json({ success: false, message: '無效的用戶 id' });
     }
 
-    const postCategory = req.body?.postCategory;
-    const rawPayload = req.body?.payload;
+    const {
+      postCategory,
+      payload: rawPayload,
+      coverImageUrl: bodyCoverImageUrl,
+      imageUrls: bodyImageUrls,
+    } = req.body || {};
 
     if (postCategory !== 'COMMUNITY_MACRO' && postCategory !== 'COMMUNITY_MICRO') {
       return res.status(400).json({
@@ -113,15 +117,40 @@ async function publishSocialPost(req, res) {
       authorSubtitle: user.bio || '',
     });
 
+    let coverImageUrl = plain.coverImageUrl ?? '';
+    let imageUrls = Array.isArray(plain.imageUrls) ? [...plain.imageUrls] : [];
+
+    if (bodyCoverImageUrl !== undefined) {
+      coverImageUrl =
+        typeof bodyCoverImageUrl === 'string'
+          ? bodyCoverImageUrl.trim()
+          : String(bodyCoverImageUrl ?? '');
+    }
+    if (bodyImageUrls !== undefined) {
+      if (!Array.isArray(bodyImageUrls)) {
+        return res.status(400).json({
+          success: false,
+          message: 'imageUrls 必須為陣列',
+        });
+      }
+      imageUrls = bodyImageUrls.map((u) => String(u ?? '').trim()).filter(Boolean);
+    }
+
+    const summaryDoc = {
+      ...plain,
+      coverImageUrl,
+      imageUrls,
+      authorId: new mongoose.Types.ObjectId(userId),
+    };
+
     const post = await Post.create({
       _id: postId,
       author: userId,
       postCategory,
+      coverImageUrl,
+      imageUrls,
       renderData: payload,
-      summary: {
-        ...plain,
-        authorId: new mongoose.Types.ObjectId(userId),
-      },
+      summary: summaryDoc,
     });
 
     return res.status(201).json({

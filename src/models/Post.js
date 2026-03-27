@@ -1,8 +1,10 @@
 const mongoose = require('mongoose');
 
 /**
- * 社群發佈（對齊 SocialPublishService + CommunityDiscoveryView 卡片）
- * 完整內容存 renderData；列表用 summary（鍵名與 GrandJourneyItem / DetailedTrackItem 對齊）
+ * 社群貼文（SocialPost / Post）
+ * - 頂層 coverImageUrl、imageUrls：與前端發佈 body 對齊，避免 strict schema 丟欄位
+ * - renderData：Mixed，等同前端 payload（Macro/Micro 任意結構）
+ * - summary：列表快取（鍵名與 GrandJourneyItem / DetailedTrackItem 對齊）
  */
 const summarySchema = new mongoose.Schema(
   {
@@ -46,6 +48,15 @@ const postSchema = new mongoose.Schema(
       required: true,
       enum: ['COMMUNITY_MACRO', 'COMMUNITY_MICRO'],
     },
+    coverImageUrl: {
+      type: String,
+      default: '',
+    },
+    imageUrls: {
+      type: [{ type: String }],
+      default: [],
+    },
+    /** 前端完整 payload（Macro/Micro） */
     renderData: {
       type: mongoose.Schema.Types.Mixed,
       required: true,
