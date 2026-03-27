@@ -62,7 +62,8 @@ async function getFeed(req, res) {
 
 /**
  * POST /api/social/publish
- * Body: { postCategory, renderData | payload, coverImageUrl?, imageUrls? }（二者擇一，可為物件或 JSON 字串）
+ * Body: { postCategory, renderData（主）| payload（兼容舊鍵）, coverImageUrl?, imageUrls? }
+ * 詳細行程（days、descriptions 等）在 renderData 內；存庫欄位名為 renderData（Mixed）
  */
 async function publishSocialPost(req, res) {
   try {
@@ -76,7 +77,7 @@ async function publishSocialPost(req, res) {
 
     const body = req.body || {};
     const postCategory = body.postCategory;
-    /** 與前端約定：renderData 或 payload 擇一，寫入模型 renderData */
+    /** 主讀 renderData；兼容 payload：等同 const renderData = req.body.renderData || req.body.payload（body 已含預設） */
     const renderData = body.renderData || body.payload;
     const bodyCoverImageUrl = body.coverImageUrl;
     const bodyImageUrls = body.imageUrls;
@@ -88,11 +89,11 @@ async function publishSocialPost(req, res) {
       });
     }
 
-    const payload = normalizePublishPayload(renderData);
-    if (payload == null || typeof payload !== 'object') {
+    const normalizedRenderData = normalizePublishPayload(renderData);
+    if (normalizedRenderData == null || typeof normalizedRenderData !== 'object') {
       return res.status(400).json({
         success: false,
-        message: '請提供有效的 renderData 或 payload（物件或 JSON 字串）',
+        message: '請提供有效的 renderData（或兼容欄位 payload）（物件或 JSON 字串）',
       });
     }
 
@@ -109,7 +110,7 @@ async function publishSocialPost(req, res) {
       'Explorer';
 
     const postId = new mongoose.Types.ObjectId();
-    const plain = buildSummaryForPublish(postCategory, payload, {
+    const plain = buildSummaryForPublish(postCategory, normalizedRenderData, {
       postId: postId.toString(),
       authorId: userId,
       authorName: displayName,
@@ -149,7 +150,7 @@ async function publishSocialPost(req, res) {
       postCategory,
       coverImageUrl,
       imageUrls,
-      renderData: payload,
+      renderData: normalizedRenderData,
       summary: summaryDoc,
     });
 
