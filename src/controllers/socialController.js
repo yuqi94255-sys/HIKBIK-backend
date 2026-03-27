@@ -32,7 +32,7 @@ function summaryToFeedJson(summary, postId) {
 
 /**
  * GET /api/social/feed
- * 回傳社群廣場卡片列表（每項含 postCategory + 完整 summary，供 GrandJourney / DetailedTrack）
+ * 每項含 postCategory、summary（列表快取）、renderData（完整 Macro/Micro，含 days 等）
  */
 async function getFeed(req, res) {
   try {
@@ -42,7 +42,7 @@ async function getFeed(req, res) {
     const docs = await Post.find({})
       .sort({ createdAt: -1 })
       .limit(limit)
-      .select('postCategory summary createdAt')
+      .select('postCategory summary createdAt renderData')
       .lean();
 
     const feed = docs.map((doc) => {
@@ -50,6 +50,7 @@ async function getFeed(req, res) {
       return {
         postCategory: doc.postCategory,
         ...summaryToFeedJson(doc.summary, postId),
+        renderData: doc.renderData ?? null,
       };
     });
 
