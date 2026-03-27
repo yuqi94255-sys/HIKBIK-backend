@@ -62,7 +62,7 @@ async function getFeed(req, res) {
 
 /**
  * POST /api/social/publish
- * Body: { postCategory, payload, coverImageUrl?, imageUrls? }（payload 可為物件或 JSON 字串）
+ * Body: { postCategory, renderData | payload, coverImageUrl?, imageUrls? }（二者擇一，可為物件或 JSON 字串）
  */
 async function publishSocialPost(req, res) {
   try {
@@ -74,12 +74,12 @@ async function publishSocialPost(req, res) {
       return res.status(400).json({ success: false, message: '無效的用戶 id' });
     }
 
-    const {
-      postCategory,
-      payload: rawPayload,
-      coverImageUrl: bodyCoverImageUrl,
-      imageUrls: bodyImageUrls,
-    } = req.body || {};
+    const body = req.body || {};
+    const postCategory = body.postCategory;
+    /** 與前端約定：renderData 或 payload 擇一，寫入模型 renderData */
+    const renderData = body.renderData || body.payload;
+    const bodyCoverImageUrl = body.coverImageUrl;
+    const bodyImageUrls = body.imageUrls;
 
     if (postCategory !== 'COMMUNITY_MACRO' && postCategory !== 'COMMUNITY_MICRO') {
       return res.status(400).json({
@@ -88,11 +88,11 @@ async function publishSocialPost(req, res) {
       });
     }
 
-    const payload = normalizePublishPayload(rawPayload);
+    const payload = normalizePublishPayload(renderData);
     if (payload == null || typeof payload !== 'object') {
       return res.status(400).json({
         success: false,
-        message: '請提供有效的 payload（物件或 JSON 字串）',
+        message: '請提供有效的 renderData 或 payload（物件或 JSON 字串）',
       });
     }
 
