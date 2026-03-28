@@ -1,29 +1,23 @@
 const express = require('express');
-const {
-  toggleLike,
-  toggleFollow,
-  publishSocialPost,
-  getFeed,
-  togglePostLike,
-  addPostComment,
-} = require('../controllers/socialController');
+const socialController = require('../controllers/socialController');
 const { verifyJWT, optionalVerifyJWT } = require('../middleware/authMiddleware');
 const { uploadCloud } = require('../middleware/cloudinaryConfig');
 
 const router = express.Router();
 
 /** 社群廣場卡片流（可選 JWT：帶 Token 時回傳 isLiked） */
-router.get('/feed', optionalVerifyJWT, getFeed);
+router.get('/feed', optionalVerifyJWT, socialController.getFeed);
 
 /** 社群發佈（對齊 SocialPublishService） */
-router.post('/publish', verifyJWT, publishSocialPost);
+router.post('/publish', verifyJWT, socialController.publishSocialPost);
 
 /** 貼文互動（綁定當前用戶）— 須在 /:id/* 之前保留字面路徑 */
-router.post('/:id/like', verifyJWT, togglePostLike);
-router.post('/:id/comment', verifyJWT, addPostComment);
+router.post('/:id/like', verifyJWT, socialController.togglePostLike);
+router.post('/:id/comment/:commentId/like', verifyJWT, socialController.toggleCommentLike);
+router.post('/:id/comment', verifyJWT, socialController.addPostComment);
 
-router.post('/toggle-like', verifyJWT, toggleLike);
-router.post('/toggle-follow', verifyJWT, toggleFollow);
+router.post('/toggle-like', verifyJWT, socialController.toggleLike);
+router.post('/toggle-follow', verifyJWT, socialController.toggleFollow);
 
 /**
  * POST /api/social/upload-image

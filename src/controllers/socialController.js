@@ -37,9 +37,9 @@ function displayNameFromUser(user) {
 }
 
 /**
- * 與 POST /api/social/:id/comment 回傳及 SocialFeedCommentDTO 對齊：id, authorId, authorName, authorAvatarUrl, text, createdAt
+ * 與 SocialFeedCommentDTO 對齊：id, authorId, authorName, authorAvatarUrl, text, createdAt, likeCount, isLiked（帶 Token 時計算）
  */
-function mapCommentToFeedDto(c) {
+function mapCommentToFeedDto(c, viewerOid) {
   if (!c || c._id == null) return null;
   const aid = c.authorId;
   let authorIdStr = '';
@@ -54,6 +54,15 @@ function mapCommentToFeedDto(c) {
   }
   const createdAt =
     c.createdAt instanceof Date ? c.createdAt.toISOString() : c.createdAt ?? null;
+
+  const likedByArr = Array.isArray(c.likedBy) ? c.likedBy : [];
+  const likeCountFromArray = likedByArr.length;
+  const likeCount =
+    typeof c.likeCount === 'number' && !Number.isNaN(c.likeCount)
+      ? c.likeCount
+      : likeCountFromArray;
+  const isLiked = viewerOid ? likedByArr.some((x) => x.equals(viewerOid)) : false;
+
   return {
     id: c._id.toString(),
     authorId: authorIdStr,
@@ -61,6 +70,8 @@ function mapCommentToFeedDto(c) {
     authorAvatarUrl,
     text: c.text != null ? String(c.text) : '',
     createdAt,
+    likeCount,
+    isLiked,
   };
 }
 
@@ -99,7 +110,7 @@ async function getFeed(req, res) {
       const commentCount = doc.commentCount ?? doc.summary?.commentCount ?? 0;
       const commentsRaw = Array.isArray(doc.comments) ? doc.comments : [];
       const comments = commentsRaw
-        .map(mapCommentToFeedDto)
+        .map((c) => mapCommentToFeedDto(c, viewerOid))
         .filter(Boolean);
 
       return {
@@ -310,6 +321,8 @@ async function addPostComment(req, res) {
     post.comments.push({
       authorId: userId,
       text,
+      likedBy: [],
+      likeCount: 0,
     });
     post.commentCount = (post.commentCount || 0) + 1;
     if (post.summary) {
@@ -318,16 +331,77 @@ async function addPostComment(req, res) {
     await post.save();
 
     const c = post.comments[post.comments.length - 1];
+    const createdAt =
+      c.createdAt instanceof Date ? c.createdAt.toISOString() : c.createdAt;
     return ok(res, {
       id: c._id.toString(),
       authorId: userId,
       authorName: displayNameFromUser(author),
       authorAvatarUrl: author.avatarUrl || '',
       text: c.text,
-      createdAt: c.createdAt,
+      createdAt,
+      likeCount: 0,
+      isLiked: false,
     });
   } catch (err) {
     console.error('addPostComment error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+/**
+ * POST /api/social/:id/comment/:commentId/like
+ * 評論點讚/取消（綁定 req.user.id，持久化 likedBy / likeCount）
+ */
+async function toggleCommentLike(req, res) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, '未授權', 401);
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return fail(res, '無效的用戶 id', 400);
+    }
+
+    const postId = req.params?.id;
+    const commentId = req.params?.commentId;
+    if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+      return fail(res, '無效的貼文 id', 400);
+    }
+    if (!commentId || !mongoose.Types.ObjectId.isValid(commentId)) {
+      return fail(res, '無效的評論 id', 400);
+    }
+
+    const authorExists = await User.exists({ _id: userId });
+    if (!authorExists) return fail(res, '用戶不存在', 404);
+
+    const post = await Post.findById(postId);
+    if (!post) return fail(res, '貼文不存在', 404);
+
+    const sub = post.comments.id(commentId);
+    if (!sub) return fail(res, '評論不存在', 404);
+
+    if (!Array.isArray(sub.likedBy)) {
+      sub.likedBy = [];
+    }
+
+    const uid = new mongoose.Types.ObjectId(userId);
+    const liked = sub.likedBy.some((x) => x.equals(uid));
+
+    if (liked) {
+      sub.likedBy.pull(uid);
+    } else {
+      sub.likedBy.push(uid);
+    }
+    sub.likeCount = sub.likedBy.length;
+
+    await post.save();
+
+    return ok(res, {
+      commentId: sub._id.toString(),
+      likeCount: sub.likeCount,
+      isLiked: !liked,
+    });
+  } catch (err) {
+    console.error('toggleCommentLike error:', err);
     return fail(res, '服務暫時不可用', 503);
   }
 }
@@ -461,4 +535,5 @@ module.exports = {
   getFeed,
   togglePostLike,
   addPostComment,
+  toggleCommentLike,
 };

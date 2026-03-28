@@ -17,6 +17,14 @@ const commentSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    likedBy: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+      default: [],
+    },
+    likeCount: {
+      type: Number,
+      default: 0,
+    },
   },
   { _id: true }
 );
