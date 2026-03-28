@@ -30,26 +30,46 @@ function summaryToFeedJson(summary, postId) {
   return s;
 }
 
+function displayNameFromUser(user) {
+  if (!user) return 'Explorer';
+  const full = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+  return full || (user.nickname || '').trim() || 'Explorer';
+}
+
 /**
  * GET /api/social/feed
- * 每項含 postCategory、summary（列表快取）、renderData（完整 Macro/Micro，含 days 等）
+ * 帶有效 JWT 時回傳 isLiked；每項含 summary、renderData、likeCount、commentCount
  */
 async function getFeed(req, res) {
   try {
     const rawLimit = parseInt(String(req.query.limit ?? '50'), 10);
     const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 50;
 
+    const viewerId = req.user?.id;
+    const viewerOid =
+      viewerId && mongoose.Types.ObjectId.isValid(viewerId)
+        ? new mongoose.Types.ObjectId(viewerId)
+        : null;
+
     const docs = await Post.find({})
       .sort({ createdAt: -1 })
       .limit(limit)
-      .select('postCategory summary createdAt renderData')
+      .select('postCategory summary createdAt renderData likedBy likeCount commentCount')
       .lean();
 
     const feed = docs.map((doc) => {
       const postId = doc._id.toString();
+      const likedBy = Array.isArray(doc.likedBy) ? doc.likedBy : [];
+      const isLiked = viewerOid ? likedBy.some((x) => x.equals(viewerOid)) : false;
+      const likeCount = doc.likeCount ?? doc.summary?.likeCount ?? 0;
+      const commentCount = doc.commentCount ?? doc.summary?.commentCount ?? 0;
+
       return {
         postCategory: doc.postCategory,
         ...summaryToFeedJson(doc.summary, postId),
+        likeCount,
+        commentCount,
+        isLiked,
         renderData: doc.renderData ?? null,
       };
     });
@@ -153,6 +173,10 @@ async function publishSocialPost(req, res) {
       imageUrls,
       renderData: normalizedRenderData,
       summary: summaryDoc,
+      likedBy: [],
+      comments: [],
+      likeCount: 0,
+      commentCount: 0,
     });
 
     return res.status(201).json({
@@ -165,6 +189,107 @@ async function publishSocialPost(req, res) {
       success: false,
       message: err.message || '發佈失敗',
     });
+  }
+}
+
+/**
+ * POST /api/social/:id/like
+ * 社群貼文點讚/取消（依 req.user.id 綁定 likedBy）
+ */
+async function togglePostLike(req, res) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, '未授權', 401);
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return fail(res, '無效的用戶 id', 400);
+    }
+
+    const postId = req.params?.id;
+    if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+      return fail(res, '無效的貼文 id', 400);
+    }
+
+    const authorExists = await User.exists({ _id: userId });
+    if (!authorExists) return fail(res, '用戶不存在', 404);
+
+    const post = await Post.findById(postId);
+    if (!post) return fail(res, '貼文不存在', 404);
+
+    const uid = new mongoose.Types.ObjectId(userId);
+    const liked = (post.likedBy || []).some((x) => x.equals(uid));
+
+    if (liked) {
+      post.likedBy.pull(uid);
+    } else {
+      post.likedBy.push(uid);
+    }
+    post.likeCount = post.likedBy.length;
+    if (post.summary) {
+      post.summary.likeCount = post.likeCount;
+    }
+    await post.save();
+
+    return ok(res, {
+      likeCount: post.likeCount,
+      isLiked: !liked,
+    });
+  } catch (err) {
+    console.error('togglePostLike error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+/**
+ * POST /api/social/:id/comment
+ * Body: { text }
+ */
+async function addPostComment(req, res) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, '未授權', 401);
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return fail(res, '無效的用戶 id', 400);
+    }
+
+    const postId = req.params?.id;
+    if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+      return fail(res, '無效的貼文 id', 400);
+    }
+
+    const text = String(req.body?.text ?? '').trim();
+    if (!text) return fail(res, '請提供 text', 400);
+    if (text.length > 2000) return fail(res, '評論不可超過 2000 字', 400);
+
+    const author = await User.findById(userId)
+      .select('nickname firstName lastName avatarUrl')
+      .lean();
+    if (!author) return fail(res, '用戶不存在', 404);
+
+    const post = await Post.findById(postId);
+    if (!post) return fail(res, '貼文不存在', 404);
+
+    post.comments.push({
+      authorId: userId,
+      text,
+    });
+    post.commentCount = (post.commentCount || 0) + 1;
+    if (post.summary) {
+      post.summary.commentCount = post.commentCount;
+    }
+    await post.save();
+
+    const c = post.comments[post.comments.length - 1];
+    return ok(res, {
+      id: c._id.toString(),
+      authorId: userId,
+      authorName: displayNameFromUser(author),
+      authorAvatarUrl: author.avatarUrl || '',
+      text: c.text,
+      createdAt: c.createdAt,
+    });
+  } catch (err) {
+    console.error('addPostComment error:', err);
+    return fail(res, '服務暫時不可用', 503);
   }
 }
 
@@ -290,4 +415,11 @@ async function toggleFollow(req, res) {
   }
 }
 
-module.exports = { toggleLike, toggleFollow, publishSocialPost, getFeed };
+module.exports = {
+  toggleLike,
+  toggleFollow,
+  publishSocialPost,
+  getFeed,
+  togglePostLike,
+  addPostComment,
+};

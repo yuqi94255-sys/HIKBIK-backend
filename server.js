@@ -156,7 +156,8 @@ async function start() {
       console.log(`  - GET/PATCH /api/users/me、PATCH /api/users/profile、POST /api/users/avatar  用戶資料/頭像（需 JWT）`);
       console.log(`  - PATCH /api/auth/profile  更新頭像 URL 等（同 updateProfile，需 JWT）`);
       console.log(`  - GET  /uploads/...  上傳檔靜態服務`);
-      console.log(`  - GET  /api/social/feed  社群廣場卡片流（公開）`);
+      console.log(`  - GET  /api/social/feed  社群廣場（可選 JWT → isLiked）`);
+      console.log(`  - POST /api/social/:id/like、/:id/comment  貼文讚/評論（需 JWT）`);
       console.log(`  - POST /api/social/publish、toggle-like、toggle-follow、upload-image（需 JWT）`);
       console.log(`  - GET/POST/PATCH/DELETE /api/routes/:id/reviews  評論 CRUD`);
       console.log(`  - /api/integration/travel, /shop, /tools  插件化服務（Mock 待對接）`);

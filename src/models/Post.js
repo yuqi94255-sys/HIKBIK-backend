@@ -1,10 +1,32 @@
 const mongoose = require('mongoose');
 
+const commentSchema = new mongoose.Schema(
+  {
+    authorId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    text: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 2000,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: true }
+);
+
 /**
  * 社群貼文（SocialPost / Post）
- * - 頂層 coverImageUrl、imageUrls：與前端發佈 body 對齊，避免 strict schema 丟欄位
- * - renderData：Mixed，等同前端 payload（Macro/Micro 任意結構）
- * - summary：列表快取（鍵名與 GrandJourneyItem / DetailedTrackItem 對齊）
+ * - 頂層 coverImageUrl、imageUrls：與前端發佈 body 對齊
+ * - renderData：Mixed，等同前端 payload（Macro/Micro）
+ * - summary：列表快取；likeCount / commentCount 與頂層冗餘同步
+ * - likedBy / comments：互動資料，與當前 User 綁定
  */
 const summarySchema = new mongoose.Schema(
   {
@@ -65,12 +87,30 @@ const postSchema = new mongoose.Schema(
       type: summarySchema,
       required: true,
     },
+    likedBy: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+      default: [],
+    },
+    comments: {
+      type: [commentSchema],
+      default: [],
+    },
+    /** 冗餘計數（與 summary.likeCount / summary.commentCount 同步更新） */
+    likeCount: {
+      type: Number,
+      default: 0,
+    },
+    commentCount: {
+      type: Number,
+      default: 0,
+    },
   },
   { timestamps: true }
 );
 
 postSchema.index({ author: 1, createdAt: -1 });
 postSchema.index({ postCategory: 1, createdAt: -1 });
+postSchema.index({ likedBy: 1 });
 
 const Post = mongoose.models.Post || mongoose.model('Post', postSchema);
 module.exports = Post;

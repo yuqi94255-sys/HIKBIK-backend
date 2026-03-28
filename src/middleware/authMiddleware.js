@@ -49,4 +49,21 @@ function verifyJWT(req, res, next) {
   }
 }
 
-module.exports = { verifyJWT, JWT_SECRET, getBearerToken };
+/**
+ * 有 Bearer 且驗證通過時掛 req.user；無 Token 或 Token 無效時不報錯（供公開列表帶 isLiked 等）
+ */
+function optionalVerifyJWT(req, res, next) {
+  const token = getBearerToken(req);
+  if (!token) {
+    req.user = undefined;
+    return next();
+  }
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+  } catch (_err) {
+    req.user = undefined;
+  }
+  next();
+}
+
+module.exports = { verifyJWT, optionalVerifyJWT, JWT_SECRET, getBearerToken };
