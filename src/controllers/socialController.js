@@ -37,8 +37,36 @@ function displayNameFromUser(user) {
 }
 
 /**
+ * 與 POST /api/social/:id/comment 回傳及 SocialFeedCommentDTO 對齊：id, authorId, authorName, authorAvatarUrl, text, createdAt
+ */
+function mapCommentToFeedDto(c) {
+  if (!c || c._id == null) return null;
+  const aid = c.authorId;
+  let authorIdStr = '';
+  let authorName = '';
+  let authorAvatarUrl = '';
+  if (aid != null && typeof aid === 'object' && aid._id != null) {
+    authorIdStr = aid._id.toString();
+    authorName = displayNameFromUser(aid);
+    authorAvatarUrl = String(aid.avatarUrl || '');
+  } else if (aid != null) {
+    authorIdStr = String(aid);
+  }
+  const createdAt =
+    c.createdAt instanceof Date ? c.createdAt.toISOString() : c.createdAt ?? null;
+  return {
+    id: c._id.toString(),
+    authorId: authorIdStr,
+    authorName,
+    authorAvatarUrl,
+    text: c.text != null ? String(c.text) : '',
+    createdAt,
+  };
+}
+
+/**
  * GET /api/social/feed
- * 帶有效 JWT 時回傳 isLiked；每項含 summary、renderData、likeCount、commentCount
+ * 帶有效 JWT 時回傳 isLiked；每項含 summary、renderData、comments（DTO）、likeCount、commentCount
  */
 async function getFeed(req, res) {
   try {
@@ -54,7 +82,13 @@ async function getFeed(req, res) {
     const docs = await Post.find({})
       .sort({ createdAt: -1 })
       .limit(limit)
-      .select('postCategory summary createdAt renderData likedBy likeCount commentCount')
+      .select(
+        'postCategory summary createdAt renderData likedBy likeCount commentCount comments'
+      )
+      .populate({
+        path: 'comments.authorId',
+        select: 'nickname firstName lastName avatarUrl',
+      })
       .lean();
 
     const feed = docs.map((doc) => {
@@ -63,6 +97,10 @@ async function getFeed(req, res) {
       const isLiked = viewerOid ? likedBy.some((x) => x.equals(viewerOid)) : false;
       const likeCount = doc.likeCount ?? doc.summary?.likeCount ?? 0;
       const commentCount = doc.commentCount ?? doc.summary?.commentCount ?? 0;
+      const commentsRaw = Array.isArray(doc.comments) ? doc.comments : [];
+      const comments = commentsRaw
+        .map(mapCommentToFeedDto)
+        .filter(Boolean);
 
       return {
         postCategory: doc.postCategory,
@@ -70,6 +108,7 @@ async function getFeed(req, res) {
         likeCount,
         commentCount,
         isLiked,
+        comments,
         renderData: doc.renderData ?? null,
       };
     });
