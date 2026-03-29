@@ -216,16 +216,57 @@ async function getPublicProfile(req, res) {
 }
 
 /**
+ * 依實際 following / followers 陣列長度寫回計數，並回傳當前是否關注與對方粉絲數。
+ */
+async function syncFollowRelationCounts(currentId, targetId, session) {
+  const opts = session ? { session } : {};
+
+  let qCur = User.findById(currentId).select('following');
+  let qTar = User.findById(targetId).select('followers');
+  if (session) {
+    qCur = qCur.session(session);
+    qTar = qTar.session(session);
+  }
+  const [curLean, tarLean] = await Promise.all([qCur.lean(), qTar.lean()]);
+
+  const followingArr = Array.isArray(curLean?.following) ? curLean.following : [];
+  const followersArr = Array.isArray(tarLean?.followers) ? tarLean.followers : [];
+
+  await User.updateOne(
+    { _id: currentId },
+    { $set: { followingCount: followingArr.length } },
+    opts
+  );
+  await User.updateOne(
+    { _id: targetId },
+    { $set: { followersCount: followersArr.length } },
+    opts
+  );
+
+  const isFollowing = followingArr.some((f) => f.equals(targetId));
+  return { isFollowing, followerCount: followersArr.length };
+}
+
+/**
  * POST /api/users/:id/follow
- * Toggle：已關注則雙向 $pull，否則雙向 $addToSet；回傳 { isFollowing, followerCount }（followerCount 依對方 followers 陣列長度）
+ * Body: { shouldFollow: boolean }（可選 should_follow）
+ * 冪等：目標狀態已達成則不變更陣列，仍 200；計數一律依陣列長度重算。
  */
 async function followUser(req, res) {
   try {
     const userId = req.user?.id;
     if (!userId) return fail(res, '未授權', 401);
-    console.log(
-      `[Follow Action] User ${req.user.id} attempted to follow ${req.params.id}`
-    );
+
+    const rawShould = req.body?.shouldFollow ?? req.body?.should_follow;
+    if (typeof rawShould !== 'boolean') {
+      return fail(
+        res,
+        '請提供 shouldFollow（boolean）：true 為關注、false 為取消關注',
+        400
+      );
+    }
+    const shouldFollow = rawShould;
+
     const targetUserId = req.params?.id;
     if (!targetUserId) {
       return fail(res, '無效的目標用戶', 400);
@@ -240,56 +281,48 @@ async function followUser(req, res) {
     const targetId = new mongoose.Types.ObjectId(targetUserId);
     const currentId = new mongoose.Types.ObjectId(userId);
 
-    const current = await User.findById(currentId).select('following');
-    const target = await User.findById(targetId).select('followers');
-    if (!current) return fail(res, '當前用戶不存在', 404);
-    if (!target) return fail(res, '目標用戶不存在', 404);
+    console.log(
+      `[Follow Action] User ${req.user.id} shouldFollow=${shouldFollow} target ${req.params.id}`
+    );
 
-    const already = current.following?.some((f) => f.equals(targetId)) ?? false;
-
-    const runToggle = async (session) => {
+    const runIntent = async (session) => {
       const opts = session ? { session } : {};
-      if (already) {
-        await User.findByIdAndUpdate(
-          currentId,
-          { $pull: { following: targetId }, $inc: { followingCount: -1 } },
-          opts
-        );
-        await User.findByIdAndUpdate(
-          targetId,
-          { $pull: { followers: currentId }, $inc: { followersCount: -1 } },
-          opts
-        );
-      } else {
-        await User.findByIdAndUpdate(
-          currentId,
-          { $addToSet: { following: targetId }, $inc: { followingCount: 1 } },
-          opts
-        );
-        await User.findByIdAndUpdate(
-          targetId,
-          { $addToSet: { followers: currentId }, $inc: { followersCount: 1 } },
-          opts
-        );
+
+      let q = User.findById(currentId).select('following');
+      if (session) q = q.session(session);
+      const current = await q;
+      if (!current) return { error: '當前用戶不存在', status: 404 };
+
+      let qt = User.findById(targetId).select('followers');
+      if (session) qt = qt.session(session);
+      const target = await qt;
+      if (!target) return { error: '目標用戶不存在', status: 404 };
+
+      const already = current.following?.some((f) => f.equals(targetId)) ?? false;
+
+      if (shouldFollow && !already) {
+        await User.updateOne({ _id: currentId }, { $addToSet: { following: targetId } }, opts);
+        await User.updateOne({ _id: targetId }, { $addToSet: { followers: currentId } }, opts);
+      } else if (!shouldFollow && already) {
+        await User.updateOne({ _id: currentId }, { $pull: { following: targetId } }, opts);
+        await User.updateOne({ _id: targetId }, { $pull: { followers: currentId } }, opts);
       }
 
-      let q = User.findById(targetId).select('followers');
-      if (session) q = q.session(session);
-      const t2 = await q.lean();
-      const fc = Array.isArray(t2?.followers) ? t2.followers.length : 0;
-      return {
-        isFollowing: !already,
-        followerCount: fc,
-      };
+      const result = await syncFollowRelationCounts(currentId, targetId, session);
+      return { ok: true, data: result };
     };
 
     try {
       const session = await mongoose.startSession();
       session.startTransaction();
       try {
-        const result = await runToggle(session);
+        const out = await runIntent(session);
+        if (out.error) {
+          await session.abortTransaction();
+          return fail(res, out.error, out.status);
+        }
         await session.commitTransaction();
-        return ok(res, result);
+        return ok(res, out.data);
       } catch (txErr) {
         await session.abortTransaction();
         throw txErr;
@@ -297,8 +330,9 @@ async function followUser(req, res) {
         session.endSession();
       }
     } catch (_transactionNotSupported) {
-      const result = await runToggle(null);
-      return ok(res, result);
+      const out = await runIntent(null);
+      if (out.error) return fail(res, out.error, out.status);
+      return ok(res, out.data);
     }
   } catch (err) {
     console.error('followUser error:', err);
