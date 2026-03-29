@@ -104,6 +104,14 @@ app.use('/api/social', socialRouter);
 app.use('/api/posts', postsRouter);
 app.use('/api/integration', integrationRateLimiter, integrationRoutes);
 
+/** 測試資料 seed / purge：設 ENABLE_TEST_PURGE=true；用完請關閉並刪除此段 */
+if (process.env.ENABLE_TEST_PURGE === 'true') {
+  const { purgeDummies } = require('./src/controllers/testPurgeController');
+  const { seedDummies } = require('./src/controllers/testSeedController');
+  app.post('/api/test/seed-dummies', seedDummies);
+  app.delete('/api/test/purge-dummies', purgeDummies);
+}
+
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({
@@ -162,6 +170,11 @@ async function start() {
       console.log(`  - POST /api/social/publish、toggle-like、toggle-follow、upload-image（需 JWT）`);
       console.log(`  - GET/POST/PATCH/DELETE /api/routes/:id/reviews  評論 CRUD`);
       console.log(`  - /api/integration/travel, /shop, /tools  插件化服務（Mock 待對接）`);
+      if (process.env.ENABLE_TEST_PURGE === 'true') {
+        console.warn(
+          '  ⚠ POST /api/test/seed-dummies、DELETE /api/test/purge-dummies  測試後門已開啟（ENABLE_TEST_PURGE）；用完請關閉並從 server.js 移除'
+        );
+      }
       return;
     } catch (err) {
       if (err.code === 'EADDRINUSE' && i < PORT_MAX_TRY - 1) {

@@ -57,6 +57,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    /** 測試／種子虛擬帳號標記；清理時可 deleteMany({ isTestUser: true }) */
+    isTestUser: {
+      type: Boolean,
+      default: false,
+    },
     is_verified: {
       type: Boolean,
       default: false,
