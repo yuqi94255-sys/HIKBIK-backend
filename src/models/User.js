@@ -84,9 +84,11 @@ const userSchema = new mongoose.Schema(
     likedRoutes: [
       { type: mongoose.Schema.Types.ObjectId, ref: 'Route' },
     ],
+    /** 當前用戶關注的 User _id（與 followingCount 同步維護） */
     following: [
       { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     ],
+    /** 關注當前用戶的 User _id（與 followersCount 同步維護）；判斷 isFollowing 時查「對方是否在本人 followers」即：本人 id 是否在對方此陣列 */
     followers: [
       { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     ],

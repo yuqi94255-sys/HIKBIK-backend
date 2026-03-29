@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const { ok, fail } = require('../utils/response');
 const { keysToSnakeCase } = require('../utils/snakeCase');
@@ -149,6 +150,47 @@ async function uploadAvatar(req, res) {
 }
 
 /**
+ * GET /api/users/:id/profile
+ * 基本資訊 + 由 followers/following 陣列計算的計數；帶有效 Token 時回傳 isFollowing（當前用戶 id 是否在對方 followers 中）
+ */
+async function getUserProfile(req, res) {
+  try {
+    const id = req.params?.id;
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return fail(res, '無效的用戶 id', 400);
+    }
+
+    const user = await User.findById(id).select('nickname avatarUrl bio followers following').lean();
+    if (!user) return fail(res, '用戶不存在', 404);
+
+    const followers = Array.isArray(user.followers) ? user.followers : [];
+    const following = Array.isArray(user.following) ? user.following : [];
+    const followerCount = followers.length;
+    const followingCount = following.length;
+
+    let isFollowing = false;
+    const viewerId = req.user?.id;
+    if (viewerId && mongoose.Types.ObjectId.isValid(viewerId)) {
+      const vid = new mongoose.Types.ObjectId(viewerId);
+      isFollowing = followers.some((f) => f.equals(vid));
+    }
+
+    return ok(res, {
+      id: user._id.toString(),
+      nickname: user.nickname ?? 'Explorer',
+      avatarUrl: user.avatarUrl ?? '',
+      bio: user.bio ?? '',
+      followerCount,
+      followingCount,
+      isFollowing,
+    });
+  } catch (err) {
+    console.error('getUserProfile error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+/**
  * GET /api/users/:id
  * 回傳用戶 profile 詳情（following_count, followers_count）
  */
@@ -175,21 +217,100 @@ async function getPublicProfile(req, res) {
 
 /**
  * POST /api/users/:id/follow
- * 當前用戶關注 :id（Toggle：已關注則取消）
+ * Toggle：已關注則雙向 $pull，否則雙向 $addToSet；回傳 { isFollowing, followerCount }（followerCount 依對方 followers 陣列長度）
  */
 async function followUser(req, res) {
   try {
     const userId = req.user?.id;
     if (!userId) return fail(res, '未授權', 401);
+    console.log(
+      `[Follow Action] User ${req.user.id} attempted to follow ${req.params.id}`
+    );
     const targetUserId = req.params?.id;
-    if (!targetUserId || userId === targetUserId) return fail(res, '無效的目標用戶', 400);
-    req.body = { ...(req.body || {}), targetUserId };
-    const { toggleFollow } = require('./socialController');
-    return toggleFollow(req, res);
+    if (!targetUserId) {
+      return fail(res, '無效的目標用戶', 400);
+    }
+    if (userId === targetUserId) {
+      return fail(res, '你不能關注你自己（You cannot follow yourself）', 400);
+    }
+    if (!mongoose.Types.ObjectId.isValid(targetUserId) || !mongoose.Types.ObjectId.isValid(userId)) {
+      return fail(res, '無效的用戶 id', 400);
+    }
+
+    const targetId = new mongoose.Types.ObjectId(targetUserId);
+    const currentId = new mongoose.Types.ObjectId(userId);
+
+    const current = await User.findById(currentId).select('following');
+    const target = await User.findById(targetId).select('followers');
+    if (!current) return fail(res, '當前用戶不存在', 404);
+    if (!target) return fail(res, '目標用戶不存在', 404);
+
+    const already = current.following?.some((f) => f.equals(targetId)) ?? false;
+
+    const runToggle = async (session) => {
+      const opts = session ? { session } : {};
+      if (already) {
+        await User.findByIdAndUpdate(
+          currentId,
+          { $pull: { following: targetId }, $inc: { followingCount: -1 } },
+          opts
+        );
+        await User.findByIdAndUpdate(
+          targetId,
+          { $pull: { followers: currentId }, $inc: { followersCount: -1 } },
+          opts
+        );
+      } else {
+        await User.findByIdAndUpdate(
+          currentId,
+          { $addToSet: { following: targetId }, $inc: { followingCount: 1 } },
+          opts
+        );
+        await User.findByIdAndUpdate(
+          targetId,
+          { $addToSet: { followers: currentId }, $inc: { followersCount: 1 } },
+          opts
+        );
+      }
+
+      let q = User.findById(targetId).select('followers');
+      if (session) q = q.session(session);
+      const t2 = await q.lean();
+      const fc = Array.isArray(t2?.followers) ? t2.followers.length : 0;
+      return {
+        isFollowing: !already,
+        followerCount: fc,
+      };
+    };
+
+    try {
+      const session = await mongoose.startSession();
+      session.startTransaction();
+      try {
+        const result = await runToggle(session);
+        await session.commitTransaction();
+        return ok(res, result);
+      } catch (txErr) {
+        await session.abortTransaction();
+        throw txErr;
+      } finally {
+        session.endSession();
+      }
+    } catch (_transactionNotSupported) {
+      const result = await runToggle(null);
+      return ok(res, result);
+    }
   } catch (err) {
     console.error('followUser error:', err);
     return fail(res, '服務暫時不可用', 503);
   }
 }
 
-module.exports = { getProfile, updateProfile, uploadAvatar, getPublicProfile, followUser };
+module.exports = {
+  getProfile,
+  updateProfile,
+  uploadAvatar,
+  getPublicProfile,
+  getUserProfile,
+  followUser,
+};
