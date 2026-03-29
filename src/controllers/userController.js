@@ -191,6 +191,52 @@ async function getUserProfile(req, res) {
 }
 
 /**
+ * GET /api/users/:id/following
+ * 回傳該用戶關注列表（populate nickname、avatarUrl 等，非純 ObjectId）
+ */
+async function getUserFollowing(req, res) {
+  try {
+    const id = req.params?.id;
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return fail(res, '無效的用戶 id', 400);
+    }
+
+    const user = await User.findById(id)
+      .select('following')
+      .populate({
+        path: 'following',
+        select: 'nickname avatarUrl bio firstName lastName',
+      })
+      .lean();
+
+    if (!user) return fail(res, '用戶不存在', 404);
+
+    const raw = Array.isArray(user.following) ? user.following : [];
+    const items = raw
+      .map((u) => {
+        if (!u || u._id == null) return null;
+        const avatarUrl = u.avatarUrl != null ? String(u.avatarUrl) : '';
+        return {
+          id: u._id.toString(),
+          nickname: u.nickname != null ? String(u.nickname) : 'Explorer',
+          avatarUrl,
+          /** 與部分前端 profileImage 命名對齊，值同 avatarUrl */
+          profileImage: avatarUrl,
+          bio: u.bio != null ? String(u.bio) : '',
+          firstName: u.firstName != null ? String(u.firstName) : '',
+          lastName: u.lastName != null ? String(u.lastName) : '',
+        };
+      })
+      .filter(Boolean);
+
+    return ok(res, items);
+  } catch (err) {
+    console.error('getUserFollowing error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+/**
  * GET /api/users/:id
  * 回傳用戶 profile 詳情（following_count, followers_count）
  */
@@ -346,5 +392,6 @@ module.exports = {
   uploadAvatar,
   getPublicProfile,
   getUserProfile,
+  getUserFollowing,
   followUser,
 };

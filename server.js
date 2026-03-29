@@ -162,6 +162,7 @@ async function start() {
       console.log(`  - GET  /api/routes/feed  Feed 列表`);
       console.log(`  - POST /api/routes/upload、/api/routes/publish  上傳/發佈路線（需 JWT）`);
       console.log(`  - GET  /api/users/:id/profile  用戶社交檔案（可選 JWT → isFollowing）`);
+      console.log(`  - GET  /api/users/:id/following  關注列表（populate nickname / avatarUrl）`);
       console.log(`  - GET/PATCH /api/users/me、PATCH /api/users/profile、POST /api/users/avatar、POST /api/users/:id/follow  用戶資料/頭像/關注`);
       console.log(`  - PATCH /api/auth/profile  更新頭像 URL 等（同 updateProfile，需 JWT）`);
       console.log(`  - GET  /uploads/...  上傳檔靜態服務`);

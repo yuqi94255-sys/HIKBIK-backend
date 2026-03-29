@@ -5,6 +5,7 @@ const {
   uploadAvatar,
   getPublicProfile,
   getUserProfile,
+  getUserFollowing,
   followUser,
 } = require('../controllers/userController');
 const { verifyJWT, optionalVerifyJWT } = require('../middleware/authMiddleware');
@@ -19,6 +20,8 @@ router.patch('/profile', verifyJWT, updateProfile);
 router.post('/avatar', verifyJWT, upload.single('avatar'), uploadAvatar);
 /** 社交檔案（可選 JWT → isFollowing） */
 router.get('/:id/profile', optionalVerifyJWT, getUserProfile);
+/** 關注列表（populate 暱稱與頭像） */
+router.get('/:id/following', getUserFollowing);
 router.get('/:id', getPublicProfile);
 router.post('/:id/follow', verifyJWT, followUser);
 
