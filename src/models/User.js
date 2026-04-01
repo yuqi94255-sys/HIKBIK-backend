@@ -108,6 +108,16 @@ const userSchema = new mongoose.Schema(
         dateSaved: { type: Date, default: Date.now },
       },
     ],
+    /** 國家公園收藏（對齊 GET /api/user/saved-parks） */
+    savedParks: [
+      {
+        parkCode: { type: String, required: true, trim: true },
+        fullName: { type: String, default: '' },
+        coverImage: { type: String, default: '' },
+        description: { type: String, default: '' },
+        dateSaved: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true }
 );

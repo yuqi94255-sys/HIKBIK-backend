@@ -27,6 +27,35 @@ const BIO_MAX = 500;
 const AVATAR_URL_MAX = 2048;
 
 /**
+ * GET /api/users/saved-parks、GET /api/user/saved-parks、GET /api/users/me/saved-parks
+ * 回傳當前用戶收藏的國家公園（savedParks；尚無資料時為空陣列）
+ */
+async function getSavedParks(req, res) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, '未授權', 401);
+
+    const user = await User.findById(userId).select('savedParks').lean();
+    if (!user) return fail(res, '用戶不存在', 404);
+
+    const raw = Array.isArray(user.savedParks) ? user.savedParks : [];
+    const parks = raw.map((p) => ({
+      id: p._id?.toString(),
+      parkCode: p.parkCode ?? '',
+      fullName: p.fullName ?? '',
+      coverImage: p.coverImage ?? '',
+      description: p.description ?? '',
+      dateSaved: p.dateSaved ?? p.createdAt,
+    }));
+
+    return ok(res, keysToSnakeCase({ parks }));
+  } catch (err) {
+    console.error('getSavedParks error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+/**
  * GET /api/users/me
  */
 async function getProfile(req, res) {
@@ -390,6 +419,7 @@ module.exports = {
   getProfile,
   updateProfile,
   uploadAvatar,
+  getSavedParks,
   getPublicProfile,
   getUserProfile,
   getUserFollowing,

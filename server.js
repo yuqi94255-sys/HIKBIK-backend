@@ -100,6 +100,8 @@ app.use('/api', routesRouter);
 // /api/auth 下僅 /me、PATCH /me 等路由自行掛 verifyJWT；/login、/register、send-otp 等皆公開
 app.use('/api/auth', authRateLimiter, authRouter);
 app.use('/api/users', usersRouter);
+/** 與 /api/users 相同路由，兼容前端單數路徑 /api/user/* */
+app.use('/api/user', usersRouter);
 app.use('/api/me', require('./src/middleware/authMiddleware').verifyJWT, meRouter);
 app.use('/api/routes', routeAssetsRouter);
 app.use('/api/social', socialRouter);
@@ -167,6 +169,7 @@ async function start() {
       console.log(`  - GET  /api/users/:id/profile  用戶社交檔案（可選 JWT → isFollowing）`);
       console.log(`  - GET  /api/users/:id/following  關注列表（populate nickname / avatarUrl）`);
       console.log(`  - GET/PATCH /api/users/me、PATCH /api/users/profile、POST /api/users/avatar、POST /api/users/:id/follow  用戶資料/頭像/關注`);
+      console.log(`  - GET  /api/user/saved-parks（同 /api/users/saved-parks，需 JWT）收藏國家公園列表`);
       console.log(`  - PATCH /api/auth/profile  更新頭像 URL 等（同 updateProfile，需 JWT）`);
       console.log(`  - GET  /uploads/...  上傳檔靜態服務`);
       console.log(`  - GET  /api/social/feed  社群廣場（可選 JWT → isLiked）`);
