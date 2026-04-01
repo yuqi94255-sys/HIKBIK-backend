@@ -502,35 +502,22 @@ async function toggleLike(req, res) {
     const user = await User.findById(userId);
     if (!user) return fail(res, '用戶不存在', 404);
     const liked = user.likedRoutes?.some((r) => r.equals(id)) ?? false;
+    console.log('Current liked status before change:', liked);
 
     const runAtomicLike = async (session) => {
       const opts = session ? { session } : {};
       const target = await Route.findById(id);
       console.log('Target Route found?', !!target);
 
-      if (liked) {
-        await User.findByIdAndUpdate(userId, { $pull: { likedRoutes: id } }, opts);
-        if (target) {
-          await Route.updateOne(
-            { _id: id },
-            [{ $set: { likeCount: { $max: [0, { $add: ['$likeCount', -1] }] } } }],
-            opts
-          );
-        }
-        return {
-          action: 'unliked',
-          liked: false,
-          likeCount: target ? Math.max(0, (target.likeCount ?? 0) - 1) : 0,
-        };
-      }
+      // 測試模式：僅保證點讚（純 Add），不執行取消點讚
       await User.findByIdAndUpdate(userId, { $addToSet: { likedRoutes: id } }, opts);
-      if (target) {
+      if (target && !liked) {
         await Route.findByIdAndUpdate(id, { $inc: { likeCount: 1 } }, opts);
       }
       return {
         action: 'liked',
         liked: true,
-        likeCount: target ? (target.likeCount ?? 0) + 1 : 0,
+        likeCount: target ? (target.likeCount ?? 0) + (liked ? 0 : 1) : 0,
       };
     };
 
