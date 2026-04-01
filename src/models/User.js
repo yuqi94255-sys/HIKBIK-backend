@@ -151,6 +151,21 @@ userSchema.pre('save', async function hashPasswordPreSave(next) {
   }
 });
 
+/**
+ * 登入用：在實例上比對明文與 this.password（bcrypt hash），避免手動 compare 時搞錯欄位。
+ */
+userSchema.methods.comparePassword = async function comparePassword(plainText) {
+  if (this.password == null || typeof this.password !== 'string') return false;
+  if (plainText == null) return false;
+  const plain = typeof plainText === 'string' ? plainText : String(plainText);
+  if (!isBcryptHash(this.password)) return false;
+  try {
+    return await bcrypt.compare(plain, this.password);
+  } catch {
+    return false;
+  }
+};
+
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 User.BCRYPT_SALT_ROUNDS = BCRYPT_SALT_ROUNDS;
 module.exports = User;

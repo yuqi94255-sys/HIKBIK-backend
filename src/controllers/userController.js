@@ -291,41 +291,11 @@ async function getPublicProfile(req, res) {
 }
 
 /**
- * 依實際 following / followers 陣列長度寫回計數，並回傳當前是否關注與對方粉絲數。
- */
-async function syncFollowRelationCounts(currentId, targetId, session) {
-  const opts = session ? { session } : {};
-
-  let qCur = User.findById(currentId).select('following');
-  let qTar = User.findById(targetId).select('followers');
-  if (session) {
-    qCur = qCur.session(session);
-    qTar = qTar.session(session);
-  }
-  const [curLean, tarLean] = await Promise.all([qCur.lean(), qTar.lean()]);
-
-  const followingArr = Array.isArray(curLean?.following) ? curLean.following : [];
-  const followersArr = Array.isArray(tarLean?.followers) ? tarLean.followers : [];
-
-  await User.updateOne(
-    { _id: currentId },
-    { $set: { followingCount: followingArr.length } },
-    opts
-  );
-  await User.updateOne(
-    { _id: targetId },
-    { $set: { followersCount: followersArr.length } },
-    opts
-  );
-
-  const isFollowing = followingArr.some((f) => f.equals(targetId));
-  return { isFollowing, followerCount: followersArr.length };
-}
-
-/**
  * POST /api/users/:id/follow
- * Body: { shouldFollow: boolean }（可選 should_follow）
- * 冪等：目標狀態已達成則不變更陣列，仍 200；計數一律依陣列長度重算。
+ * Body 可選：
+ * - { shouldFollow: boolean } / { should_follow: boolean }：指定關注或取消
+ * - 不帶 body：直接 toggle
+ * 對稱更新 following / followers，並以 $inc 同步冗餘計數器。
  */
 async function followUser(req, res) {
   try {
@@ -333,14 +303,6 @@ async function followUser(req, res) {
     if (!userId) return fail(res, '未授權', 401);
 
     const rawShould = req.body?.shouldFollow ?? req.body?.should_follow;
-    if (typeof rawShould !== 'boolean') {
-      return fail(
-        res,
-        '請提供 shouldFollow（boolean）：true 為關注、false 為取消關注',
-        400
-      );
-    }
-    const shouldFollow = rawShould;
 
     const targetUserId = req.params?.id;
     if (!targetUserId) {
@@ -374,17 +336,43 @@ async function followUser(req, res) {
       if (!target) return { error: '目標用戶不存在', status: 404 };
 
       const already = current.following?.some((f) => f.equals(targetId)) ?? false;
+      const shouldFollow =
+        typeof rawShould === 'boolean' ? rawShould : !already;
 
       if (shouldFollow && !already) {
-        await User.updateOne({ _id: currentId }, { $addToSet: { following: targetId } }, opts);
-        await User.updateOne({ _id: targetId }, { $addToSet: { followers: currentId } }, opts);
+        await User.updateOne(
+          { _id: currentId },
+          { $addToSet: { following: targetId }, $inc: { followingCount: 1 } },
+          opts
+        );
+        await User.updateOne(
+          { _id: targetId },
+          { $addToSet: { followers: currentId }, $inc: { followersCount: 1 } },
+          opts
+        );
       } else if (!shouldFollow && already) {
-        await User.updateOne({ _id: currentId }, { $pull: { following: targetId } }, opts);
-        await User.updateOne({ _id: targetId }, { $pull: { followers: currentId } }, opts);
+        await User.updateOne(
+          { _id: currentId },
+          { $pull: { following: targetId }, $inc: { followingCount: -1 } },
+          opts
+        );
+        await User.updateOne(
+          { _id: targetId },
+          { $pull: { followers: currentId }, $inc: { followersCount: -1 } },
+          opts
+        );
       }
 
-      const result = await syncFollowRelationCounts(currentId, targetId, session);
-      return { ok: true, data: result };
+      let targetQuery = User.findById(targetId).select('followersCount');
+      if (session) targetQuery = targetQuery.session(session);
+      const targetAfter = await targetQuery.lean();
+      return {
+        ok: true,
+        data: {
+          isFollowing: shouldFollow,
+          followersCount: Math.max(0, Number(targetAfter?.followersCount || 0)),
+        },
+      };
     };
 
     try {
@@ -397,7 +385,7 @@ async function followUser(req, res) {
           return fail(res, out.error, out.status);
         }
         await session.commitTransaction();
-        return ok(res, out.data);
+        return res.json({ success: true, ...out.data });
       } catch (txErr) {
         await session.abortTransaction();
         throw txErr;
@@ -407,7 +395,7 @@ async function followUser(req, res) {
     } catch (_transactionNotSupported) {
       const out = await runIntent(null);
       if (out.error) return fail(res, out.error, out.status);
-      return ok(res, out.data);
+      return res.json({ success: true, ...out.data });
     }
   } catch (err) {
     console.error('followUser error:', err);

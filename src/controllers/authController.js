@@ -364,6 +364,16 @@ async function register(req, res) {
   }
 }
 
+function logLoginCompareDebug(phase, { plainLen, hashStr }) {
+  if (process.env.DEBUG_AUTH_LOGIN !== '1') return;
+  const h = hashStr != null ? String(hashStr) : '';
+  console.log('[login-compare]', phase, {
+    plainPasswordLength: plainLen,
+    storedHashPrefix: h.slice(0, 22),
+    storedLooksBcrypt: /^\$2[aby]\$/.test(h),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Email 登錄
 // ---------------------------------------------------------------------------
@@ -377,17 +387,27 @@ async function login(req, res) {
       message: '請提供 email 與 password',
     });
   }
-  const safeEmail = email.toLowerCase();
+  /** 與 register 一致：trim + lowercase，避免「註冊能進、登入找不到人」 */
+  const safeEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  const plainPassword =
+    password === undefined || password === null ? '' : String(password).trim();
+
+  if (!safeEmail || !plainPassword) {
+    return res.status(400).json({
+      success: false,
+      data: null,
+      error: '請提供有效的 email 與 password',
+      message: '請提供有效的 email 與 password',
+    });
+  }
 
   try {
     const user = await User.findOne({ email: safeEmail });
     if (!user || !user.password) {
-      console.log(
-        '[DEBUG] 用戶輸入的密碼長度:',
-        password != null ? String(password).length : 0
-      );
-      console.log('[DEBUG] 資料庫存的 Hash:', user ? user.password : '(無此用戶或無 password)');
-      console.log('[DEBUG] 比對結果:', '(略過，無 hash 可比)');
+      logLoginCompareDebug('skip (no user or no password hash)', {
+        plainLen: plainPassword.length,
+        hashStr: user && user.password,
+      });
       return res.status(401).json({
         success: false,
         data: null,
@@ -396,10 +416,14 @@ async function login(req, res) {
       });
     }
 
-    console.log('[DEBUG] 用戶輸入的密碼長度:', String(password).length);
-    console.log('[DEBUG] 資料庫存的 Hash:', user.password);
-    const valid = await bcrypt.compare(password, user.password);
-    console.log('[DEBUG] 比對結果:', valid);
+    logLoginCompareDebug('before bcrypt.compare', {
+      plainLen: plainPassword.length,
+      hashStr: user.password,
+    });
+    const valid = await user.comparePassword(plainPassword);
+    if (process.env.DEBUG_AUTH_LOGIN === '1') {
+      console.log('[login-compare] bcrypt.compare result:', valid);
+    }
     if (!valid) {
       return res.status(401).json({
         success: false,
@@ -435,10 +459,14 @@ async function login(req, res) {
       });
     }
 
-    console.log('[DEBUG] 用戶輸入的密碼長度:', String(password).length);
-    console.log('[DEBUG] 資料庫存的 Hash (mock):', mockUser.passwordHash);
-    const valid = await bcrypt.compare(password, mockUser.passwordHash);
-    console.log('[DEBUG] 比對結果:', valid);
+    logLoginCompareDebug('mock before bcrypt.compare', {
+      plainLen: plainPassword.length,
+      hashStr: mockUser.passwordHash,
+    });
+    const valid = await bcrypt.compare(plainPassword, mockUser.passwordHash);
+    if (process.env.DEBUG_AUTH_LOGIN === '1') {
+      console.log('[login-compare] mock compare result:', valid);
+    }
     if (!valid) {
       return res.status(401).json({
         success: false,

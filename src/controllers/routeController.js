@@ -173,4 +173,42 @@ async function getFeed(req, res) {
   }
 }
 
-module.exports = { uploadRoute, publishRoute, getFeed };
+/**
+ * GET /api/routes/journeys/:id（兼容：/api/routes/feed/:id、/api/routes/detail/:id）
+ * 取單條用戶 Journey/Route 詳情，補齊作者欄位；不做「非本人」限制。
+ */
+async function getJourneyById(req, res) {
+  try {
+    const id = String(req.params?.id || '').trim();
+    if (!id) return fail(res, '缺少路線 id', 400);
+
+    const route = await Route.findById(id)
+      .populate('creator', 'nickname avatarUrl firstName lastName')
+      .lean();
+    if (!route) return fail(res, '找不到該路線', 404);
+
+    const creator = route.creator || {};
+    return ok(res, {
+      id: route._id.toString(),
+      title: route.title || '',
+      waypoints: Array.isArray(route.waypoints) ? route.waypoints : [],
+      location: route.location || { type: 'LineString', coordinates: [] },
+      stats: route.stats || { totalDistance: 0, totalAscent: 0, avgSpeed: 0 },
+      likeCount: route.likeCount ?? 0,
+      createdAt: route.createdAt,
+      updatedAt: route.updatedAt,
+      author: {
+        id: creator._id ? String(creator._id) : '',
+        nickname: creator.nickname || 'Explorer',
+        avatarUrl: creator.avatarUrl || '',
+        firstName: creator.firstName || '',
+        lastName: creator.lastName || '',
+      },
+    });
+  } catch (err) {
+    console.error('getJourneyById error:', err);
+    return fail(res, '取得路線詳情失敗', 503);
+  }
+}
+
+module.exports = { uploadRoute, publishRoute, getFeed, getJourneyById };

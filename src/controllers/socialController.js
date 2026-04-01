@@ -478,19 +478,27 @@ async function toggleCommentLike(req, res) {
 
 /**
  * POST /api/social/toggle-like
- * 原子操作：User.likedRoutes 與 Route.likeCount 同步增減
+ * 僅處理「路線 Route」：User.likedRoutes（ObjectId）與 Route.likeCount 同步增減。
+ * 社群貼文請用 POST /api/social/:id/like（:id 為 feed 回傳之 MongoDB 貼文 _id，不可用 cloud_ 等 Mock id）。
  */
 async function toggleLike(req, res) {
   try {
     const userId = req.user?.id;
     if (!userId) return fail(res, '未授權', 401);
 
-    const postId = req.body?.postId;
-    if (!postId) return fail(res, '請提供 postId', 400);
-    if (!mongoose.Types.ObjectId.isValid(postId)) {
-      return fail(res, 'postId 格式無效', 400);
+    const postId = req.body?.postId ?? req.body?.post_id;
+    if (postId == null || (typeof postId === 'string' && !postId.trim())) {
+      return fail(res, '請提供 postId（或 post_id）', 400);
     }
-    const id = new mongoose.Types.ObjectId(postId);
+    const rawId = String(postId).trim();
+    if (!mongoose.Types.ObjectId.isValid(rawId)) {
+      const cloudHint =
+        rawId.startsWith('cloud_') || rawId.includes('cloud')
+          ? ' 此 id 非 MongoDB ObjectId。社群動態請改用 POST /api/social/<貼文_id>/like，且 id 須為 GET /api/social/feed 回傳的貼文 id。'
+          : ' 須為 24 位 hex 的 MongoDB ObjectId（路線 _id）。';
+      return fail(res, `postId 格式無效。${cloudHint}`, 400);
+    }
+    const id = new mongoose.Types.ObjectId(rawId);
 
     const user = await User.findById(userId);
     if (!user) return fail(res, '用戶不存在', 404);
@@ -515,13 +523,19 @@ async function toggleLike(req, res) {
       return { action: 'liked', liked: true, likeCount: (route.likeCount ?? 0) + 1 };
     };
 
+    const respondOk = async (result) => {
+      const fresh = await User.findById(userId).select('likedRoutes').lean();
+      const likedRoutesCount = Array.isArray(fresh?.likedRoutes) ? fresh.likedRoutes.length : 0;
+      return ok(res, keysToSnakeCase({ ...result, likedRoutesCount }));
+    };
+
     try {
       const session = await mongoose.startSession();
       session.startTransaction();
       try {
         const result = await runAtomicLike(session);
         await session.commitTransaction();
-        return ok(res, keysToSnakeCase(result));
+        return await respondOk(result);
       } catch (txErr) {
         await session.abortTransaction();
         throw txErr;
@@ -530,7 +544,7 @@ async function toggleLike(req, res) {
       }
     } catch (_transactionNotSupported) {
       const result = await runAtomicLike(null);
-      return ok(res, keysToSnakeCase(result));
+      return await respondOk(result);
     }
   } catch (err) {
     console.error('toggleLike error:', err);
