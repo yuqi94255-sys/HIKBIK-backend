@@ -141,7 +141,7 @@ async function getLiked(req, res) {
           .select('title stats likeCount createdAt location')
           .lean(),
         Post.find({ _id: { $in: oidList } })
-          .select('summary coverImageUrl imageUrls likeCount createdAt')
+          .select('summary renderData postCategory coverImageUrl imageUrls likeCount createdAt')
           .lean(),
       ]);
 
@@ -155,7 +155,9 @@ async function getLiked(req, res) {
             return {
               id,
               source: 'route',
-              title: r.title,
+              title: r.title || '',
+              postCategory: 'ROUTE',
+              coverImageUrl: '',
               stats: r.stats,
               like_count: r.likeCount ?? 0,
               created_at: r.createdAt,
@@ -164,11 +166,22 @@ async function getLiked(req, res) {
           }
           const p = postMap.get(id);
           if (p) {
+            const title =
+              p.summary?.title ||
+              p.renderData?.title ||
+              p.renderData?.name ||
+              '';
+            const coverImageUrl =
+              p.coverImageUrl ||
+              p.summary?.coverImageUrl ||
+              (Array.isArray(p.imageUrls) ? p.imageUrls[0] : '') ||
+              '';
             return {
               id,
               source: 'post',
-              title: p.summary?.title || '',
-              cover_image_url: p.coverImageUrl || '',
+              title,
+              postCategory: p.postCategory || 'JOURNEY_POST',
+              coverImageUrl,
               image_urls: Array.isArray(p.imageUrls) ? p.imageUrls : [],
               like_count: p.likeCount ?? 0,
               created_at: p.createdAt,
