@@ -513,7 +513,7 @@ async function toggleLike(req, res) {
       ]);
       const targetModelName = targetRoute
         ? 'Route'
-        : (targetPost ? 'Post' : 'NotFound');
+        : (targetPost ? 'JourneyPost(Post)' : 'NotFound');
       console.log('Target found in:', targetModelName);
 
       // 點讚的是 Route，因此僅操作 User.likedRoutes（Route ObjectId 集合）

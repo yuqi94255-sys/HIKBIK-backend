@@ -136,7 +136,8 @@ async function getLiked(req, res) {
     let likedRoutes = [];
     if (likedIds.length > 0) {
       const oidList = likedIds.map((x) => new mongoose.Types.ObjectId(x));
-      const [routeDocs, postDocs] = await Promise.all([
+      // 暴力修復：同時掃 Route 與 JourneyPost（本專案以 Post 模型承載）
+      const [routes, journeyPosts] = await Promise.all([
         Route.find({ _id: { $in: oidList } })
           .select('title stats likeCount createdAt location')
           .lean(),
@@ -145,51 +146,61 @@ async function getLiked(req, res) {
           .lean(),
       ]);
 
-      const routeMap = new Map(routeDocs.map((d) => [d._id.toString(), d]));
-      const postMap = new Map(postDocs.map((d) => [d._id.toString(), d]));
+      const routeMap = new Map(routes.map((d) => [d._id.toString(), d]));
+      const postMap = new Map(journeyPosts.map((d) => [d._id.toString(), d]));
 
-      likedRoutes = likedIds
-        .map((id) => {
-          const r = routeMap.get(id);
-          if (r) {
-            return {
-              id,
-              source: 'route',
-              title: r.title || '',
-              postCategory: 'ROUTE',
-              coverImageUrl: '',
-              stats: r.stats,
-              like_count: r.likeCount ?? 0,
-              created_at: r.createdAt,
-              location: r.location ?? null,
-            };
-          }
-          const p = postMap.get(id);
-          if (p) {
-            const title =
-              p.summary?.title ||
-              p.renderData?.title ||
-              p.renderData?.name ||
-              '';
-            const coverImageUrl =
-              p.coverImageUrl ||
-              p.summary?.coverImageUrl ||
-              (Array.isArray(p.imageUrls) ? p.imageUrls[0] : '') ||
-              '';
-            return {
-              id,
-              source: 'post',
-              title,
-              postCategory: p.postCategory || 'JOURNEY_POST',
-              coverImageUrl,
-              image_urls: Array.isArray(p.imageUrls) ? p.imageUrls : [],
-              like_count: p.likeCount ?? 0,
-              created_at: p.createdAt,
-            };
-          }
-          return null;
-        })
-        .filter(Boolean);
+      likedRoutes = likedIds.map((id) => {
+        const r = routeMap.get(id);
+        if (r) {
+          return {
+            id,
+            source: 'route',
+            title: r.title || `Liked route ${id.slice(-6)}`,
+            postCategory: 'ROUTE',
+            coverImageUrl: '',
+            stats: r.stats,
+            like_count: r.likeCount ?? 0,
+            created_at: r.createdAt,
+            location: r.location ?? null,
+          };
+        }
+
+        const p = postMap.get(id);
+        if (p) {
+          const title =
+            p.summary?.title ||
+            p.renderData?.title ||
+            p.renderData?.name ||
+            `Liked post ${id.slice(-6)}`;
+          const coverImageUrl =
+            p.coverImageUrl ||
+            p.summary?.coverImageUrl ||
+            (Array.isArray(p.imageUrls) ? p.imageUrls[0] : '') ||
+            '';
+          return {
+            id,
+            source: 'journey_post',
+            title,
+            postCategory: p.postCategory || 'JOURNEY_POST',
+            coverImageUrl,
+            image_urls: Array.isArray(p.imageUrls) ? p.imageUrls : [],
+            like_count: p.likeCount ?? 0,
+            created_at: p.createdAt,
+          };
+        }
+
+        // 兜底：即使兩表都找不到，仍回傳最小資訊，避免前端收到空陣列
+        return {
+          id,
+          source: 'unknown',
+          title: `Liked item ${id.slice(-6)}`,
+          postCategory: 'UNKNOWN',
+          coverImageUrl: '',
+          image_urls: [],
+          like_count: 0,
+          created_at: null,
+        };
+      });
     }
 
     console.log('User ID:', req.user.id, 'Fetched Liked Count:', likedRoutes.length);
