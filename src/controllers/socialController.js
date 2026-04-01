@@ -501,6 +501,7 @@ async function toggleLike(req, res) {
 
     const user = await User.findById(userId);
     if (!user) return fail(res, '用戶不存在', 404);
+    console.log('Target ID:', id, 'User Liked List:', user.likedRoutes);
     const liked = user.likedRoutes?.some((r) => r.equals(id)) ?? false;
     console.log('Current liked status before change:', liked);
 
@@ -509,7 +510,7 @@ async function toggleLike(req, res) {
       const target = await Route.findById(id);
       console.log('Target Route found?', !!target);
 
-      // 測試模式：僅保證點讚（純 Add），不執行取消點讚
+      // 點讚的是 Route，因此僅操作 User.likedRoutes（Route ObjectId 集合）
       await User.findByIdAndUpdate(userId, { $addToSet: { likedRoutes: id } }, opts);
       if (target && !liked) {
         await Route.findByIdAndUpdate(id, { $inc: { likeCount: 1 } }, opts);

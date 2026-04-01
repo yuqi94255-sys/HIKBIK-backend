@@ -132,18 +132,19 @@ async function getLiked(req, res) {
       })
       .lean();
     if (!user) return fail(res, '用戶不存在', 404);
-    console.log(
-      '[getLiked] raw likedRoutes count:',
-      Array.isArray(user.likedRoutes) ? user.likedRoutes.length : 0
-    );
-    const routes = (user.likedRoutes || []).map((r) => ({
+    const likedRoutes = (user.likedRoutes || []).map((r) => ({
       id: r._id?.toString(),
       title: r.title,
       stats: r.stats,
       like_count: r.likeCount ?? 0,
       created_at: r.createdAt,
     }));
-    return ok(res, keysToSnakeCase({ routes }));
+    console.log('User ID:', req.user.id, 'Fetched Liked Count:', likedRoutes.length);
+    return ok(res, {
+      likedRoutes,
+      // 兼容舊前端欄位
+      routes: likedRoutes,
+    });
   } catch (err) {
     console.error('getLiked error:', err);
     return fail(res, '服務暫時不可用', 503);
