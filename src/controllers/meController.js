@@ -121,6 +121,10 @@ async function getLiked(req, res) {
     }
     const userOid = new mongoose.Types.ObjectId(userId);
 
+    // 地毯式排查：先看原始欄位（未 populate）
+    const userRaw = await User.findById(userOid).select('likedRoutes');
+    console.log('User raw likedRoutes:', userRaw?.likedRoutes || []);
+
     const user = await User.findOne({ _id: userOid })
       .populate({
         path: 'likedRoutes',

@@ -219,9 +219,22 @@ async function getUserProfile(req, res) {
   }
 }
 
+function toFollowingObjectId(entry) {
+  if (!entry) return null;
+  if (entry instanceof mongoose.Types.ObjectId) return entry;
+  if (typeof entry === 'string' && mongoose.Types.ObjectId.isValid(entry)) {
+    return new mongoose.Types.ObjectId(entry);
+  }
+  if (typeof entry === 'object' && entry._id != null) {
+    return toFollowingObjectId(entry._id);
+  }
+  return null;
+}
+
 /**
  * GET /api/users/:id/following
- * 回傳該用戶關注列表（populate nickname、avatarUrl 等，非純 ObjectId）
+ * 回傳該用戶關注列表（等同 populate nickname / avatarUrl / firstName / lastName）。
+ * 以 $in 二次查詢：僅回傳仍存在的 User，已刪除的 id 不會出現在陣列中。
  */
 async function getUserFollowing(req, res) {
   try {
@@ -230,33 +243,46 @@ async function getUserFollowing(req, res) {
       return fail(res, '無效的用戶 id', 400);
     }
 
-    const user = await User.findById(id)
-      .select('following')
-      .populate({
-        path: 'following',
-        select: 'nickname avatarUrl bio firstName lastName',
-      })
-      .lean();
-
+    const user = await User.findById(id).select('following').lean();
     if (!user) return fail(res, '用戶不存在', 404);
 
     const raw = Array.isArray(user.following) ? user.following : [];
-    const items = raw
+    const orderedIds = [];
+    const seen = new Set();
+    for (const entry of raw) {
+      const oid = toFollowingObjectId(entry);
+      if (!oid) continue;
+      const key = oid.toString();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      orderedIds.push(oid);
+    }
+
+    if (orderedIds.length === 0) {
+      return ok(res, []);
+    }
+
+    const docs = await User.find({ _id: { $in: orderedIds } })
+      .select('nickname avatarUrl firstName lastName bio')
+      .lean();
+
+    const byId = new Map(docs.map((d) => [d._id.toString(), d]));
+
+    const items = orderedIds
+      .map((oid) => byId.get(oid.toString()))
+      .filter((d) => d != null && d._id != null)
       .map((u) => {
-        if (!u || u._id == null) return null;
         const avatarUrl = u.avatarUrl != null ? String(u.avatarUrl) : '';
         return {
           id: u._id.toString(),
           nickname: u.nickname != null ? String(u.nickname) : 'Explorer',
           avatarUrl,
-          /** 與部分前端 profileImage 命名對齊，值同 avatarUrl */
           profileImage: avatarUrl,
           bio: u.bio != null ? String(u.bio) : '',
           firstName: u.firstName != null ? String(u.firstName) : '',
           lastName: u.lastName != null ? String(u.lastName) : '',
         };
-      })
-      .filter(Boolean);
+      });
 
     return ok(res, items);
   } catch (err) {

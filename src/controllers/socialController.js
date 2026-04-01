@@ -492,40 +492,53 @@ async function toggleLike(req, res) {
     }
     const rawId = String(postId).trim();
     if (!mongoose.Types.ObjectId.isValid(rawId)) {
-      const cloudHint =
-        rawId.startsWith('cloud_') || rawId.includes('cloud')
-          ? ' 此 id 非 MongoDB ObjectId。社群動態請改用 POST /api/social/<貼文_id>/like，且 id 須為 GET /api/social/feed 回傳的貼文 id。'
-          : ' 須為 24 位 hex 的 MongoDB ObjectId（路線 _id）。';
-      return fail(res, `postId 格式無效。${cloudHint}`, 400);
+      console.log('--- ToggleLike Attempt ---', { userId, targetId: rawId, error: 'invalid_objectid' });
+      return res.status(400).json({ message: 'Invalid Route ID or Route not found' });
     }
     const id = new mongoose.Types.ObjectId(rawId);
+    console.log('--- ToggleLike Attempt ---', { userId, targetId: id });
 
     const user = await User.findById(userId);
     if (!user) return fail(res, '用戶不存在', 404);
-    const route = await Route.findById(id);
-    if (!route) return fail(res, '路線不存在', 404);
-
     const liked = user.likedRoutes?.some((r) => r.equals(id)) ?? false;
 
     const runAtomicLike = async (session) => {
       const opts = session ? { session } : {};
+      const target = await Route.findById(id);
+      console.log('Target Route found?', !!target);
+
       if (liked) {
         await User.findByIdAndUpdate(userId, { $pull: { likedRoutes: id } }, opts);
-        await Route.updateOne(
-          { _id: id },
-          [{ $set: { likeCount: { $max: [0, { $add: ['$likeCount', -1] }] } } }],
-          opts
-        );
-        return { action: 'unliked', liked: false, likeCount: Math.max(0, (route.likeCount ?? 0) - 1) };
+        if (target) {
+          await Route.updateOne(
+            { _id: id },
+            [{ $set: { likeCount: { $max: [0, { $add: ['$likeCount', -1] }] } } }],
+            opts
+          );
+        }
+        return {
+          action: 'unliked',
+          liked: false,
+          likeCount: target ? Math.max(0, (target.likeCount ?? 0) - 1) : 0,
+        };
       }
       await User.findByIdAndUpdate(userId, { $addToSet: { likedRoutes: id } }, opts);
-      await Route.findByIdAndUpdate(id, { $inc: { likeCount: 1 } }, opts);
-      return { action: 'liked', liked: true, likeCount: (route.likeCount ?? 0) + 1 };
+      if (target) {
+        await Route.findByIdAndUpdate(id, { $inc: { likeCount: 1 } }, opts);
+      }
+      return {
+        action: 'liked',
+        liked: true,
+        likeCount: target ? (target.likeCount ?? 0) + 1 : 0,
+      };
     };
 
     const respondOk = async (result) => {
-      const fresh = await User.findById(userId).select('likedRoutes').lean();
-      const likedRoutesCount = Array.isArray(fresh?.likedRoutes) ? fresh.likedRoutes.length : 0;
+      const updatedUser = await User.findById(userId).select('likedRoutes').lean();
+      console.log('User likedRoutes after save:', updatedUser?.likedRoutes || []);
+      const likedRoutesCount = Array.isArray(updatedUser?.likedRoutes)
+        ? updatedUser.likedRoutes.length
+        : 0;
       return ok(res, keysToSnakeCase({ ...result, likedRoutesCount }));
     };
 
