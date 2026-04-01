@@ -8,7 +8,8 @@
     "start:no-kill": "node server.js",
     "dev": "NODE_ENV=development node server.js",
     "fix-password": "node scripts/fix-user-password-once.js",
-    "verify-align": "node scripts/verify-align.js"
+    "verify-align": "node scripts/verify-align.js",
+    "seed-parks": "node scripts/seedParks.js"
   },
   "keywords": [
     "bike",

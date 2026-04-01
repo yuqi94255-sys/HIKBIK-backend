@@ -16,6 +16,7 @@ const routeAssetsRouter = require('./src/routes/routeAssets');
 const socialRouter = require('./src/routes/social');
 const postsRouter = require('./src/routes/posts');
 const integrationRoutes = require('./src/routes/integrationRoutes');
+const parksRouter = require('./src/routes/parks');
 // 限流已改為空 middleware（見 src/middleware/rateLimiter.js），測試期不會 429
 const { authRateLimiter, integrationRateLimiter } = require('./src/middleware/rateLimiter');
 
@@ -94,6 +95,7 @@ app.get('/health', (req, res) => {
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.use('/api', productsRouter);
+app.use('/api', parksRouter);
 app.use('/api', routesRouter);
 // /api/auth 下僅 /me、PATCH /me 等路由自行掛 verifyJWT；/login、/register、send-otp 等皆公開
 app.use('/api/auth', authRateLimiter, authRouter);
@@ -157,6 +159,7 @@ async function start() {
       }
       console.log(`HIKBIK Server 運行於 http://localhost:${port}（本機）`);
       console.log(`  - GET  /api/inventory  站點庫存（全球資產）`);
+      console.log(`  - GET  /api/parks  美國國家公園（NPS 代理，最多 100 筆，需 NPS_API_KEY）`);
       console.log(`  - POST /api/test-path  路徑引擎（GPS）`);
       console.log(`  - /api/auth  登錄、send-otp、verify-otp、GET|PATCH /api/auth/me`);
       console.log(`  - GET  /api/routes/feed  Feed 列表`);
