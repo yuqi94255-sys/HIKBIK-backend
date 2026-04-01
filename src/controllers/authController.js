@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
-const { JWT_SECRET } = require('../middleware/authMiddleware');
+const { getJwtSecret } = require('../middleware/authMiddleware');
 const User = require('../models/User');
 const { sendVerificationCode, verifyVerificationCode } = require('../services/authService');
 
@@ -22,7 +22,7 @@ const APPLE_REDIRECT_URI = process.env.APPLE_REDIRECT_URI;
 const mockUsers = new Map(); // email -> { email, passwordHash, name, id }
 
 function generateToken(payload, expiresIn = '7d') {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn });
 }
 
 // ---------------------------------------------------------------------------

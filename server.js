@@ -94,11 +94,15 @@ app.get('/health', (req, res) => {
 // 上傳頭像等靜態檔（avatarUrl 如 /uploads/xxx.jpg）
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+/**
+ * 認證路由必須最先掛載，且勿使用 app.use(verifyJWT) 全域攔截。
+ * login / register / send-otp 等皆不帶 JWT；僅 auth 內個別路由（如 PATCH /profile）掛 verifyJWT。
+ */
+app.use('/api/auth', authRateLimiter, authRouter);
+
 app.use('/api', productsRouter);
 app.use('/api', parksRouter);
 app.use('/api', routesRouter);
-// /api/auth 下僅 /me、PATCH /me 等路由自行掛 verifyJWT；/login、/register、send-otp 等皆公開
-app.use('/api/auth', authRateLimiter, authRouter);
 app.use('/api/users', usersRouter);
 /** 與 /api/users 相同路由，兼容前端單數路徑 /api/user/* */
 app.use('/api/user', usersRouter);
@@ -136,6 +140,13 @@ function tryListen(port) {
 }
 
 async function start() {
+  const jwtSecretSet = Boolean(String(process.env.JWT_SECRET || '').trim());
+  if ((process.env.NODE_ENV === 'production' || process.env.RENDER) && !jwtSecretSet) {
+    console.error(
+      '[auth] ⚠ JWT_SECRET 未設定：請在 Render（或主機）Environment 設定「固定」密鑰；否則重啟後簽章變了，既有 Bearer Token 會變成 invalid signature。'
+    );
+  }
+
   if (process.env.MONGODB_URI) {
     try {
       await connectDB();

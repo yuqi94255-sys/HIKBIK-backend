@@ -13,6 +13,8 @@ const { updateProfile } = require('../controllers/userController');
 
 const router = express.Router();
 
+// 切勿在此使用 router.use(verifyJWT) 包住全檔，否則 /login、/register 等會全部 401。
+
 // ---------------------------------------------------------------------------
 // 公開路由（不需 JWT；Header 有無 Bearer 都會進入處理函數）
 // ---------------------------------------------------------------------------

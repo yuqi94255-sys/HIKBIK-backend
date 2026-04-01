@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const { Resend } = require('resend');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const { JWT_SECRET } = require('../middleware/authMiddleware');
+const { getJwtSecret } = require('../middleware/authMiddleware');
 
 /** 與 Resend 控制台 API Key 一致；環境變數名必須為 RESEND_API_KEY（值形如 re_asNjxfQ6...） */
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -76,7 +76,7 @@ function generateOTP() {
 }
 
 function generateToken(payload, expiresIn = '7d') {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn });
 }
 
 function getEmailSafe(email) {
