@@ -486,17 +486,18 @@ async function toggleLike(req, res) {
     const userId = req.user?.id;
     if (!userId) return fail(res, '未授權', 401);
 
-    const postId = req.body?.postId ?? req.body?.post_id;
-    if (postId == null || (typeof postId === 'string' && !postId.trim())) {
+    const rawInputId =
+      req.body?.postId ?? req.body?.post_id ?? req.body?.id ?? req.params?.id;
+    if (rawInputId == null || (typeof rawInputId === 'string' && !rawInputId.trim())) {
       return fail(res, '請提供 postId（或 post_id）', 400);
     }
-    const rawId = String(postId).trim();
+    const rawId = String(rawInputId).trim();
+    console.log('--- ToggleLike Attempt ---', { userId, targetId: rawId });
     if (!mongoose.Types.ObjectId.isValid(rawId)) {
       console.log('--- ToggleLike Attempt ---', { userId, targetId: rawId, error: 'invalid_objectid' });
       return res.status(400).json({ message: 'Invalid Route ID or Route not found' });
     }
     const id = new mongoose.Types.ObjectId(rawId);
-    console.log('--- ToggleLike Attempt ---', { userId, targetId: id });
 
     const user = await User.findById(userId);
     if (!user) return fail(res, '用戶不存在', 404);
