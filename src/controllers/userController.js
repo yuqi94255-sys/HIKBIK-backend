@@ -302,7 +302,8 @@ async function followUser(req, res) {
     const userId = req.user?.id;
     if (!userId) return fail(res, '未授權', 401);
 
-    const rawShould = req.body?.shouldFollow ?? req.body?.should_follow;
+    /** 前端可傳 should_follow 或 shouldFollow；皆未傳則在 runIntent 內 toggle */
+    const should_follow = req.body?.should_follow ?? req.body?.shouldFollow;
 
     const targetUserId = req.params?.id;
     if (!targetUserId) {
@@ -319,7 +320,7 @@ async function followUser(req, res) {
     const currentId = new mongoose.Types.ObjectId(userId);
 
     console.log(
-      `[Follow Action] User ${req.user.id} shouldFollow=${shouldFollow} target ${req.params.id}`
+      `[Follow Action] User ${req.user.id} should_follow=${typeof should_follow === 'boolean' ? should_follow : 'toggle'} target ${req.params.id}`
     );
 
     const runIntent = async (session) => {
@@ -336,10 +337,10 @@ async function followUser(req, res) {
       if (!target) return { error: '目標用戶不存在', status: 404 };
 
       const already = current.following?.some((f) => f.equals(targetId)) ?? false;
-      const shouldFollow =
-        typeof rawShould === 'boolean' ? rawShould : !already;
+      const effectiveFollow =
+        typeof should_follow === 'boolean' ? should_follow : !already;
 
-      if (shouldFollow && !already) {
+      if (effectiveFollow && !already) {
         await User.updateOne(
           { _id: currentId },
           { $addToSet: { following: targetId }, $inc: { followingCount: 1 } },
@@ -350,7 +351,7 @@ async function followUser(req, res) {
           { $addToSet: { followers: currentId }, $inc: { followersCount: 1 } },
           opts
         );
-      } else if (!shouldFollow && already) {
+      } else if (!effectiveFollow && already) {
         await User.updateOne(
           { _id: currentId },
           { $pull: { following: targetId }, $inc: { followingCount: -1 } },
@@ -369,7 +370,7 @@ async function followUser(req, res) {
       return {
         ok: true,
         data: {
-          isFollowing: shouldFollow,
+          isFollowing: effectiveFollow,
           followersCount: Math.max(0, Number(targetAfter?.followersCount || 0)),
         },
       };
