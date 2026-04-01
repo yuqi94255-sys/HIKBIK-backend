@@ -507,18 +507,24 @@ async function toggleLike(req, res) {
 
     const runAtomicLike = async (session) => {
       const opts = session ? { session } : {};
-      const target = await Route.findById(id);
-      console.log('Target Route found?', !!target);
+      const [targetRoute, targetPost] = await Promise.all([
+        Route.findById(id),
+        Post.findById(id).select('_id'),
+      ]);
+      const targetModelName = targetRoute
+        ? 'Route'
+        : (targetPost ? 'Post' : 'NotFound');
+      console.log('Target found in:', targetModelName);
 
       // 點讚的是 Route，因此僅操作 User.likedRoutes（Route ObjectId 集合）
       await User.findByIdAndUpdate(userId, { $addToSet: { likedRoutes: id } }, opts);
-      if (target && !liked) {
+      if (targetRoute && !liked) {
         await Route.findByIdAndUpdate(id, { $inc: { likeCount: 1 } }, opts);
       }
       return {
         action: 'liked',
         liked: true,
-        likeCount: target ? (target.likeCount ?? 0) + (liked ? 0 : 1) : 0,
+        likeCount: targetRoute ? (targetRoute.likeCount ?? 0) + (liked ? 0 : 1) : 0,
       };
     };
 

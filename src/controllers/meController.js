@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const Route = require('../models/Route');
+const Post = require('../models/Post');
 const mongoose = require('mongoose');
 const { ok, fail } = require('../utils/response');
 const { keysToSnakeCase, pickBody } = require('../utils/snakeCase');
@@ -125,20 +126,59 @@ async function getLiked(req, res) {
     const userRaw = await User.findById(userOid).select('likedRoutes');
     console.log('User raw likedRoutes:', userRaw?.likedRoutes || []);
 
-    const user = await User.findOne({ _id: userOid })
-      .populate({
-        path: 'likedRoutes',
-        select: 'title stats likeCount createdAt location',
-      })
-      .lean();
+    const user = await User.findOne({ _id: userOid }).select('likedRoutes').lean();
     if (!user) return fail(res, '用戶不存在', 404);
-    const likedRoutes = (user.likedRoutes || []).map((r) => ({
-      id: r._id?.toString(),
-      title: r.title,
-      stats: r.stats,
-      like_count: r.likeCount ?? 0,
-      created_at: r.createdAt,
-    }));
+
+    const likedIds = (user.likedRoutes || [])
+      .map((x) => (x && x.toString ? x.toString() : String(x || '')))
+      .filter((x) => mongoose.Types.ObjectId.isValid(x));
+
+    let likedRoutes = [];
+    if (likedIds.length > 0) {
+      const oidList = likedIds.map((x) => new mongoose.Types.ObjectId(x));
+      const [routeDocs, postDocs] = await Promise.all([
+        Route.find({ _id: { $in: oidList } })
+          .select('title stats likeCount createdAt location')
+          .lean(),
+        Post.find({ _id: { $in: oidList } })
+          .select('summary coverImageUrl imageUrls likeCount createdAt')
+          .lean(),
+      ]);
+
+      const routeMap = new Map(routeDocs.map((d) => [d._id.toString(), d]));
+      const postMap = new Map(postDocs.map((d) => [d._id.toString(), d]));
+
+      likedRoutes = likedIds
+        .map((id) => {
+          const r = routeMap.get(id);
+          if (r) {
+            return {
+              id,
+              source: 'route',
+              title: r.title,
+              stats: r.stats,
+              like_count: r.likeCount ?? 0,
+              created_at: r.createdAt,
+              location: r.location ?? null,
+            };
+          }
+          const p = postMap.get(id);
+          if (p) {
+            return {
+              id,
+              source: 'post',
+              title: p.summary?.title || '',
+              cover_image_url: p.coverImageUrl || '',
+              image_urls: Array.isArray(p.imageUrls) ? p.imageUrls : [],
+              like_count: p.likeCount ?? 0,
+              created_at: p.createdAt,
+            };
+          }
+          return null;
+        })
+        .filter(Boolean);
+    }
+
     console.log('User ID:', req.user.id, 'Fetched Liked Count:', likedRoutes.length);
     return ok(res, {
       likedRoutes,
