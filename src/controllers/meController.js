@@ -115,8 +115,23 @@ async function getLiked(req, res) {
   try {
     const userId = req.user?.id;
     if (!userId) return fail(res, '未授權', 401);
-    const user = await User.findById(userId).populate('likedRoutes').lean();
+    console.log('Fetching likes for user:', userId);
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return fail(res, '無效的用戶 id', 400);
+    }
+    const userOid = new mongoose.Types.ObjectId(userId);
+
+    const user = await User.findOne({ _id: userOid })
+      .populate({
+        path: 'likedRoutes',
+        select: 'title stats likeCount createdAt location',
+      })
+      .lean();
     if (!user) return fail(res, '用戶不存在', 404);
+    console.log(
+      '[getLiked] raw likedRoutes count:',
+      Array.isArray(user.likedRoutes) ? user.likedRoutes.length : 0
+    );
     const routes = (user.likedRoutes || []).map((r) => ({
       id: r._id?.toString(),
       title: r.title,
