@@ -170,6 +170,8 @@ async function start() {
       console.log(`  - PATCH /api/auth/profile  更新頭像 URL 等（同 updateProfile，需 JWT）`);
       console.log(`  - GET  /uploads/...  上傳檔靜態服務`);
       console.log(`  - GET  /api/social/feed  社群廣場（可選 JWT → isLiked）`);
+      console.log(`  - GET  /api/social/me/posts  我的貼文（需 JWT）`);
+      console.log(`  - GET  /api/social/me/liked-posts  已讚貼文（需 JWT）`);
       console.log(`  - POST /api/social/:id/like、/:id/comment、/:id/comment/:commentId/like  讚/評論/評論讚（需 JWT）`);
       console.log(`  - POST /api/social/publish、toggle-like、toggle-follow、upload-image（需 JWT）`);
       console.log(`  - GET/POST/PATCH/DELETE /api/routes/:id/reviews  評論 CRUD`);

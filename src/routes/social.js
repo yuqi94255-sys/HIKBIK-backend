@@ -8,6 +8,10 @@ const router = express.Router();
 /** 社群廣場卡片流（可選 JWT：帶 Token 時回傳 isLiked） */
 router.get('/feed', optionalVerifyJWT, socialController.getFeed);
 
+/** 個人貼文 / 已讚貼文（須 JWT；須在 /:id 動態路由之前） */
+router.get('/me/posts', verifyJWT, socialController.getMyPosts);
+router.get('/me/liked-posts', verifyJWT, socialController.getLikedPosts);
+
 /** 社群發佈（對齊 SocialPublishService） */
 router.post('/publish', verifyJWT, socialController.publishSocialPost);
 

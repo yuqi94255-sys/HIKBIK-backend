@@ -75,14 +75,49 @@ function mapCommentToFeedDto(c, viewerOid) {
   };
 }
 
+/** 單則貼文 → 與 GET /feed 相同的列表項形狀 */
+function mapPostDocToFeedItem(doc, viewerOid) {
+  const postId = doc._id.toString();
+  const likedBy = Array.isArray(doc.likedBy) ? doc.likedBy : [];
+  const isLiked = viewerOid ? likedBy.some((x) => x.equals(viewerOid)) : false;
+  const likeCount = doc.likeCount ?? doc.summary?.likeCount ?? 0;
+  const commentCount = doc.commentCount ?? doc.summary?.commentCount ?? 0;
+  const commentsRaw = Array.isArray(doc.comments) ? doc.comments : [];
+  const comments = commentsRaw
+    .map((c) => mapCommentToFeedDto(c, viewerOid))
+    .filter(Boolean);
+
+  return {
+    postCategory: doc.postCategory,
+    ...summaryToFeedJson(doc.summary, postId),
+    likeCount,
+    commentCount,
+    isLiked,
+    comments,
+    renderData: doc.renderData ?? null,
+  };
+}
+
+function parseFeedLimit(query) {
+  const rawLimit = parseInt(String(query?.limit ?? '50'), 10);
+  return Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 50;
+}
+
+const FEED_POST_SELECT =
+  'postCategory summary createdAt renderData likedBy likeCount commentCount comments';
+
+const FEED_COMMENT_POPULATE = {
+  path: 'comments.authorId',
+  select: 'nickname firstName lastName avatarUrl',
+};
+
 /**
  * GET /api/social/feed
  * 帶有效 JWT 時回傳 isLiked；每項含 summary、renderData、comments（DTO）、likeCount、commentCount
  */
 async function getFeed(req, res) {
   try {
-    const rawLimit = parseInt(String(req.query.limit ?? '50'), 10);
-    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 50;
+    const limit = parseFeedLimit(req.query);
 
     const viewerId = req.user?.id;
     const viewerOid =
@@ -93,40 +128,75 @@ async function getFeed(req, res) {
     const docs = await Post.find({})
       .sort({ createdAt: -1 })
       .limit(limit)
-      .select(
-        'postCategory summary createdAt renderData likedBy likeCount commentCount comments'
-      )
-      .populate({
-        path: 'comments.authorId',
-        select: 'nickname firstName lastName avatarUrl',
-      })
+      .select(FEED_POST_SELECT)
+      .populate(FEED_COMMENT_POPULATE)
       .lean();
 
-    const feed = docs.map((doc) => {
-      const postId = doc._id.toString();
-      const likedBy = Array.isArray(doc.likedBy) ? doc.likedBy : [];
-      const isLiked = viewerOid ? likedBy.some((x) => x.equals(viewerOid)) : false;
-      const likeCount = doc.likeCount ?? doc.summary?.likeCount ?? 0;
-      const commentCount = doc.commentCount ?? doc.summary?.commentCount ?? 0;
-      const commentsRaw = Array.isArray(doc.comments) ? doc.comments : [];
-      const comments = commentsRaw
-        .map((c) => mapCommentToFeedDto(c, viewerOid))
-        .filter(Boolean);
-
-      return {
-        postCategory: doc.postCategory,
-        ...summaryToFeedJson(doc.summary, postId),
-        likeCount,
-        commentCount,
-        isLiked,
-        comments,
-        renderData: doc.renderData ?? null,
-      };
-    });
+    const feed = docs.map((doc) => mapPostDocToFeedItem(doc, viewerOid));
 
     return ok(res, feed);
   } catch (err) {
     console.error('getFeed error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+/**
+ * GET /api/social/me/posts
+ * 當前登入用戶發佈的貼文（形狀同 feed 單項陣列）
+ */
+async function getMyPosts(req, res) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, '未授權', 401);
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return fail(res, '無效的用戶 id', 400);
+    }
+
+    const viewerOid = new mongoose.Types.ObjectId(userId);
+    const limit = parseFeedLimit(req.query);
+
+    const docs = await Post.find({ author: userId })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .select(FEED_POST_SELECT)
+      .populate(FEED_COMMENT_POPULATE)
+      .lean();
+
+    const feed = docs.map((doc) => mapPostDocToFeedItem(doc, viewerOid));
+    return ok(res, feed);
+  } catch (err) {
+    console.error('getMyPosts error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+/**
+ * GET /api/social/me/liked-posts
+ * 當前登入用戶已讚的社群貼文（Post.likedBy 含本人；形狀同 feed 單項陣列）
+ */
+async function getLikedPosts(req, res) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, '未授權', 401);
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return fail(res, '無效的用戶 id', 400);
+    }
+
+    const viewerOid = new mongoose.Types.ObjectId(userId);
+    const limit = parseFeedLimit(req.query);
+
+    const docs = await Post.find({ likedBy: viewerOid })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .select(FEED_POST_SELECT)
+      .populate(FEED_COMMENT_POPULATE)
+      .lean();
+
+    const feed = docs.map((doc) => mapPostDocToFeedItem(doc, viewerOid));
+    return ok(res, feed);
+  } catch (err) {
+    console.error('getLikedPosts error:', err);
     return fail(res, '服務暫時不可用', 503);
   }
 }
@@ -533,6 +603,8 @@ module.exports = {
   toggleFollow,
   publishSocialPost,
   getFeed,
+  getMyPosts,
+  getLikedPosts,
   togglePostLike,
   addPostComment,
   toggleCommentLike,
