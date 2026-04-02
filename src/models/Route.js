@@ -43,6 +43,10 @@ const routeSchema = new mongoose.Schema(
       totalAscent: { type: Number, default: 0 },
       avgSpeed: { type: Number, default: 0 },
     },
+    likedBy: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+      default: [],
+    },
     likeCount: { type: Number, default: 0 },
   },
   { timestamps: true }

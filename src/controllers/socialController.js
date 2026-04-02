@@ -478,83 +478,181 @@ async function toggleCommentLike(req, res) {
 
 /**
  * POST /api/social/toggle-like
- * 僅處理「路線 Route」：User.likedRoutes（ObjectId）與 Route.likeCount 同步增減。
- * 社群貼文請用 POST /api/social/:id/like（:id 為 feed 回傳之 MongoDB 貼文 _id，不可用 cloud_ 等 Mock id）。
+ * Body: targetId（或 post_id / postId / id）、targetType（POST | ROUTE，可省略則依資料庫自動判斷）
+ * 同步：User.likedRoutes ↔ Post|Route 的 likedBy、likeCount（計數與 likedBy 長度一致）
  */
+function isTransactionUnsupportedError(msg) {
+  if (typeof msg !== 'string') return false;
+  return (
+    msg.includes('Transaction numbers are only allowed') ||
+    msg.includes('replica set') ||
+    msg.includes('mongos') ||
+    msg.includes('Multi-document transactions are not supported')
+  );
+}
+
 async function toggleLike(req, res) {
-  try {
-    const userId = req.user?.id;
-    if (!userId) return fail(res, '未授權', 401);
+  const userId = req.user?.id;
+  if (!userId) return fail(res, '未授權', 401);
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    return fail(res, '無效的用戶 id', 400);
+  }
 
-    const rawInputId =
-      req.body?.postId ?? req.body?.post_id ?? req.body?.id ?? req.params?.id;
-    if (rawInputId == null || (typeof rawInputId === 'string' && !rawInputId.trim())) {
-      return fail(res, '請提供 postId（或 post_id）', 400);
+  const rawTargetId =
+    req.body?.targetId ??
+    req.body?.target_id ??
+    req.body?.postId ??
+    req.body?.post_id ??
+    req.body?.id ??
+    req.params?.id;
+  if (rawTargetId == null || (typeof rawTargetId === 'string' && !String(rawTargetId).trim())) {
+    return fail(res, '請提供 targetId（或 post_id）', 400);
+  }
+  const rawId = String(rawTargetId).trim();
+  if (!mongoose.Types.ObjectId.isValid(rawId)) {
+    return fail(res, '無效的 targetId', 400);
+  }
+  const targetOid = new mongoose.Types.ObjectId(rawId);
+  const userOid = new mongoose.Types.ObjectId(userId);
+
+  let targetType = (req.body?.targetType ?? req.body?.target_type ?? '')
+    .toString()
+    .trim()
+    .toUpperCase();
+
+  if (targetType !== 'POST' && targetType !== 'ROUTE') {
+    const [r, p] = await Promise.all([
+      Route.findById(targetOid).select('_id').lean(),
+      Post.findById(targetOid).select('_id').lean(),
+    ]);
+    if (r && !p) targetType = 'ROUTE';
+    else if (p && !r) targetType = 'POST';
+    else if (r && p) {
+      return fail(res, '請提供 targetType：POST 或 ROUTE', 400);
+    } else {
+      return fail(res, '找不到目標', 404);
     }
-    const rawId = String(rawInputId).trim();
-    console.log('--- ToggleLike Attempt ---', { userId, targetId: rawId });
-    if (!mongoose.Types.ObjectId.isValid(rawId)) {
-      console.log('--- ToggleLike Attempt ---', { userId, targetId: rawId, error: 'invalid_objectid' });
-      return res.status(400).json({ message: 'Invalid Route ID or Route not found' });
+  } else {
+    const exists =
+      targetType === 'ROUTE'
+        ? await Route.exists({ _id: targetOid })
+        : await Post.exists({ _id: targetOid });
+    if (!exists) return fail(res, '找不到目標', 404);
+  }
+
+  const runToggle = async (session) => {
+    const sess = session || undefined;
+    const user = await User.findById(userId).session(sess);
+    if (!user) {
+      const e = new Error('用戶不存在');
+      e.status = 404;
+      throw e;
     }
-    const id = new mongoose.Types.ObjectId(rawId);
 
-    const user = await User.findById(userId);
-    if (!user) return fail(res, '用戶不存在', 404);
-    console.log('Target ID:', id, 'User Liked List:', user.likedRoutes);
-    const liked = user.likedRoutes?.some((r) => r.equals(id)) ?? false;
-    console.log('Current liked status before change:', liked);
-
-    const runAtomicLike = async (session) => {
-      const opts = session ? { session } : {};
-      const [targetRoute, targetPost] = await Promise.all([
-        Route.findById(id),
-        Post.findById(id).select('_id'),
-      ]);
-      const targetModelName = targetRoute
-        ? 'Route'
-        : (targetPost ? 'JourneyPost(Post)' : 'NotFound');
-      console.log('Target found in:', targetModelName);
-
-      // 點讚的是 Route，因此僅操作 User.likedRoutes（Route ObjectId 集合）
-      await User.findByIdAndUpdate(userId, { $addToSet: { likedRoutes: id } }, opts);
-      if (targetRoute && !liked) {
-        await Route.findByIdAndUpdate(id, { $inc: { likeCount: 1 } }, opts);
+    if (targetType === 'POST') {
+      const post = await Post.findById(targetOid).session(sess);
+      if (!post) {
+        const e = new Error('找不到貼文');
+        e.status = 404;
+        throw e;
       }
-      return {
-        action: 'liked',
-        liked: true,
-        likeCount: targetRoute ? (targetRoute.likeCount ?? 0) + (liked ? 0 : 1) : 0,
-      };
-    };
 
-    const respondOk = async (result) => {
-      const updatedUser = await User.findById(userId).select('likedRoutes').lean();
-      console.log('User likedRoutes after save:', updatedUser?.likedRoutes || []);
-      const likedRoutesCount = Array.isArray(updatedUser?.likedRoutes)
-        ? updatedUser.likedRoutes.length
-        : 0;
-      return ok(res, keysToSnakeCase({ ...result, likedRoutesCount }));
-    };
+      const liked = (post.likedBy || []).some((x) => x.equals(userOid));
+      if (!liked) {
+        post.likedBy.push(userOid);
+        await User.findByIdAndUpdate(
+          userId,
+          { $addToSet: { likedRoutes: targetOid } },
+          { session: sess }
+        );
+      } else {
+        post.likedBy.pull(userOid);
+        await User.findByIdAndUpdate(
+          userId,
+          { $pull: { likedRoutes: targetOid } },
+          { session: sess }
+        );
+      }
+      post.likeCount = post.likedBy.length;
+      if (post.summary) {
+        post.summary.likeCount = post.likeCount;
+      }
+      await post.save({ session: sess });
+      return { isLiked: !liked, likeCount: post.likeCount };
+    }
+
+    const route = await Route.findById(targetOid).session(sess);
+    if (!route) {
+      const e = new Error('找不到路線');
+      e.status = 404;
+      throw e;
+    }
+    if (!Array.isArray(route.likedBy)) {
+      route.likedBy = [];
+    }
+    const liked = route.likedBy.some((x) => x.equals(userOid));
+    if (!liked) {
+      route.likedBy.push(userOid);
+      await User.findByIdAndUpdate(
+        userId,
+        { $addToSet: { likedRoutes: targetOid } },
+        { session: sess }
+      );
+    } else {
+      route.likedBy.pull(userOid);
+      await User.findByIdAndUpdate(
+        userId,
+        { $pull: { likedRoutes: targetOid } },
+        { session: sess }
+      );
+    }
+    route.likeCount = route.likedBy.length;
+    await route.save({ session: sess });
+    return { isLiked: !liked, likeCount: route.likeCount };
+  };
+
+  try {
+    let session;
+    try {
+      session = await mongoose.startSession();
+    } catch {
+      const out = await runToggle(null);
+      return res.status(200).json({
+        success: true,
+        isLiked: out.isLiked,
+        likeCount: out.likeCount,
+      });
+    }
 
     try {
-      const session = await mongoose.startSession();
       session.startTransaction();
-      try {
-        const result = await runAtomicLike(session);
-        await session.commitTransaction();
-        return await respondOk(result);
-      } catch (txErr) {
+      const out = await runToggle(session);
+      await session.commitTransaction();
+      return res.status(200).json({
+        success: true,
+        isLiked: out.isLiked,
+        likeCount: out.likeCount,
+      });
+    } catch (innerErr) {
+      if (session.inTransaction && session.inTransaction()) {
         await session.abortTransaction();
-        throw txErr;
-      } finally {
-        session.endSession();
       }
-    } catch (_transactionNotSupported) {
-      const result = await runAtomicLike(null);
-      return await respondOk(result);
+      if (isTransactionUnsupportedError(innerErr && innerErr.message)) {
+        const out = await runToggle(null);
+        return res.status(200).json({
+          success: true,
+          isLiked: out.isLiked,
+          likeCount: out.likeCount,
+        });
+      }
+      throw innerErr;
+    } finally {
+      session.endSession();
     }
   } catch (err) {
+    if (err && err.status === 404) {
+      return fail(res, err.message, 404);
+    }
     console.error('toggleLike error:', err);
     return fail(res, '服務暫時不可用', 503);
   }

@@ -149,58 +149,51 @@ async function getLiked(req, res) {
       const routeMap = new Map(routes.map((d) => [d._id.toString(), d]));
       const postMap = new Map(journeyPosts.map((d) => [d._id.toString(), d]));
 
-      likedRoutes = likedIds.map((id) => {
-        const r = routeMap.get(id);
-        if (r) {
-          return {
-            id,
-            source: 'route',
-            title: r.title || `Liked route ${id.slice(-6)}`,
-            postCategory: 'ROUTE',
-            coverImageUrl: '',
-            stats: r.stats,
-            like_count: r.likeCount ?? 0,
-            created_at: r.createdAt,
-            location: r.location ?? null,
-          };
-        }
+      // 只保留在資料庫裡真正找得到實體的點讚
+      likedRoutes = likedIds
+        .map((id) => {
+          const r = routeMap.get(id);
+          if (r) {
+            return {
+              id,
+              source: 'route',
+              title: r.title || `Liked route ${id.slice(-6)}`,
+              postCategory: 'ROUTE',
+              coverImageUrl: '',
+              stats: r.stats,
+              like_count: r.likeCount ?? 0,
+              created_at: r.createdAt,
+              location: r.location ?? null,
+            };
+          }
 
-        const p = postMap.get(id);
-        if (p) {
-          const title =
-            p.summary?.title ||
-            p.renderData?.title ||
-            p.renderData?.name ||
-            `Liked post ${id.slice(-6)}`;
-          const coverImageUrl =
-            p.coverImageUrl ||
-            p.summary?.coverImageUrl ||
-            (Array.isArray(p.imageUrls) ? p.imageUrls[0] : '') ||
-            '';
-          return {
-            id,
-            source: 'journey_post',
-            title,
-            postCategory: p.postCategory || 'JOURNEY_POST',
-            coverImageUrl,
-            image_urls: Array.isArray(p.imageUrls) ? p.imageUrls : [],
-            like_count: p.likeCount ?? 0,
-            created_at: p.createdAt,
-          };
-        }
+          const p = postMap.get(id);
+          if (p) {
+            const title =
+              p.summary?.title ||
+              p.renderData?.title ||
+              p.renderData?.name ||
+              `Liked post ${id.slice(-6)}`;
+            const coverImageUrl =
+              p.coverImageUrl ||
+              p.summary?.coverImageUrl ||
+              (Array.isArray(p.imageUrls) ? p.imageUrls[0] : '') ||
+              '';
+            return {
+              id,
+              source: 'journey_post',
+              title,
+              postCategory: p.postCategory || 'JOURNEY_POST',
+              coverImageUrl,
+              image_urls: Array.isArray(p.imageUrls) ? p.imageUrls : [],
+              like_count: p.likeCount ?? 0,
+              created_at: p.createdAt,
+            };
+          }
 
-        // 兜底：即使兩表都找不到，仍回傳最小資訊，避免前端收到空陣列
-        return {
-          id,
-          source: 'unknown',
-          title: `Liked item ${id.slice(-6)}`,
-          postCategory: 'UNKNOWN',
-          coverImageUrl: '',
-          image_urls: [],
-          like_count: 0,
-          created_at: null,
-        };
-      });
+          return null;
+        })
+        .filter((item) => item !== null);
     }
 
     console.log('User ID:', req.user.id, 'Fetched Liked Count:', likedRoutes.length);
