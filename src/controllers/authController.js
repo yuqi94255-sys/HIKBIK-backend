@@ -4,6 +4,7 @@ const { OAuth2Client } = require('google-auth-library');
 const { getJwtSecret } = require('../middleware/authMiddleware');
 const User = require('../models/User');
 const { sendVerificationCode, verifyVerificationCode } = require('../services/authService');
+const { followingIdsFromUser } = require('../utils/followingIds');
 
 // ---------------------------------------------------------------------------
 // 從 .env 讀取 OAuth 憑證（申請到憑證後在 .env 填寫）
@@ -244,6 +245,7 @@ async function googleLogin(req, res) {
         email: googleUser.email,
         name: googleUser.name,
         provider: 'google',
+        followingIds: [],
       },
     },
     message: '',
@@ -253,6 +255,7 @@ async function googleLogin(req, res) {
       email: googleUser.email,
       name: googleUser.name,
       provider: 'google',
+      followingIds: [],
     },
   });
 }
@@ -289,6 +292,7 @@ async function appleLogin(req, res) {
         email: appleData.email,
         name: appleData.name,
         provider: 'apple',
+        followingIds: [],
       },
     },
     message: '',
@@ -298,6 +302,7 @@ async function appleLogin(req, res) {
       email: appleData.email,
       name: appleData.name,
       provider: 'apple',
+      followingIds: [],
     },
   });
 }
@@ -339,6 +344,7 @@ async function register(req, res) {
       email: user.email,
       name: user.nickname,
       provider: 'email',
+      followingIds: followingIdsFromUser(user),
     };
 
     return res.status(201).json({
@@ -439,6 +445,7 @@ async function login(req, res) {
       email: user.email,
       name: user.nickname,
       provider: 'email',
+      followingIds: followingIdsFromUser(user),
     };
     return res.json({
       success: true,
@@ -482,6 +489,7 @@ async function login(req, res) {
       email: mockUser.email,
       name: mockUser.name,
       provider: 'email',
+      followingIds: [],
     };
     return res.json({
       success: true,

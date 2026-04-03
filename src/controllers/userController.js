@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const { ok, fail } = require('../utils/response');
 const { keysToSnakeCase } = require('../utils/snakeCase');
+const { followingIdsFromUser } = require('../utils/followingIds');
 
 /** GET /api/users/me 等回傳給前端的 profile 欄位（camelCase，含真實 email / firstName / lastName / avatarUrl） */
 function profilePayload(user) {
@@ -17,6 +18,8 @@ function profilePayload(user) {
     followingCount: user.followingCount ?? 0,
     followersCount: user.followersCount ?? 0,
     totalDistanceMeters: user.totalDistanceMeters ?? 0,
+    /** 當前用戶關注的 User _id 字串列表，供前端啟動快取 */
+    followingIds: followingIdsFromUser(user),
   };
 }
 
@@ -393,11 +396,18 @@ async function followUser(req, res) {
       let targetQuery = User.findById(targetId).select('followersCount');
       if (session) targetQuery = targetQuery.session(session);
       const targetAfter = await targetQuery.lean();
+
+      let currentQuery = User.findById(currentId).select('following followingCount');
+      if (session) currentQuery = currentQuery.session(session);
+      const currentAfter = await currentQuery.lean();
+
       return {
         ok: true,
         data: {
           isFollowing: effectiveFollow,
           followersCount: Math.max(0, Number(targetAfter?.followersCount || 0)),
+          followingIds: followingIdsFromUser(currentAfter),
+          followingCount: Math.max(0, Number(currentAfter?.followingCount || 0)),
         },
       };
     };
@@ -412,7 +422,7 @@ async function followUser(req, res) {
           return fail(res, out.error, out.status);
         }
         await session.commitTransaction();
-        return res.json({ success: true, ...out.data });
+        return ok(res, out.data);
       } catch (txErr) {
         await session.abortTransaction();
         throw txErr;
@@ -422,7 +432,7 @@ async function followUser(req, res) {
     } catch (_transactionNotSupported) {
       const out = await runIntent(null);
       if (out.error) return fail(res, out.error, out.status);
-      return res.json({ success: true, ...out.data });
+      return ok(res, out.data);
     }
   } catch (err) {
     console.error('followUser error:', err);

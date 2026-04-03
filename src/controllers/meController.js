@@ -149,7 +149,7 @@ async function getLiked(req, res) {
       const routeMap = new Map(routes.map((d) => [d._id.toString(), d]));
       const postMap = new Map(journeyPosts.map((d) => [d._id.toString(), d]));
 
-      // 只保留在資料庫裡真正找得到實體的點讚
+      // 無 unknown 兜底：資料庫找不到實體就 return null，再由 filter 剔除
       likedRoutes = likedIds
         .map((id) => {
           const r = routeMap.get(id);

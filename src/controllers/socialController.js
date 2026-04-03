@@ -4,6 +4,7 @@ const Post = require('../models/Post');
 const mongoose = require('mongoose');
 const { ok, fail } = require('../utils/response');
 const { keysToSnakeCase } = require('../utils/snakeCase');
+const { followingIdsFromUser } = require('../utils/followingIds');
 const { buildSummaryForPublish } = require('../utils/socialPublishSummary');
 
 function normalizePublishPayload(raw) {
@@ -659,8 +660,134 @@ async function toggleLike(req, res) {
 }
 
 /**
+ * 關注切換核心：先嘗試取消（僅在 following 含對方時才 $pull + $dec），否則在「未關注」時才 $addToSet + $inc。
+ * 避免 $addToSet 不變卻仍 $inc 導致計數錯亂；雙向更新需同時成功，否則丟錯以觸發 transaction abort。
+ */
+async function runSocialFollowToggle(session, currentId, targetId) {
+  const opts = session ? { session } : {};
+
+  let meExistsQ = User.exists({ _id: currentId });
+  if (session) meExistsQ = meExistsQ.session(session);
+  const meExists = await meExistsQ;
+  if (!meExists) {
+    const e = new Error('當前用戶不存在');
+    e.status = 404;
+    throw e;
+  }
+  let themExistsQ = User.exists({ _id: targetId });
+  if (session) themExistsQ = themExistsQ.session(session);
+  const themExists = await themExistsQ;
+  if (!themExists) {
+    const e = new Error('目標用戶不存在');
+    e.status = 404;
+    throw e;
+  }
+
+  const unfollowMe = await User.updateOne(
+    { _id: currentId, following: targetId },
+    { $pull: { following: targetId }, $inc: { followingCount: -1 } },
+    opts
+  );
+
+  if (unfollowMe.modifiedCount > 0) {
+    const unfollowThem = await User.updateOne(
+      { _id: targetId, followers: currentId },
+      { $pull: { followers: currentId }, $inc: { followersCount: -1 } },
+      opts
+    );
+    if (unfollowThem.modifiedCount === 0) {
+      const e = new Error('關注資料不一致，請重試');
+      e.status = 409;
+      throw e;
+    }
+  } else {
+    const followMe = await User.updateOne(
+      { _id: currentId, following: { $nin: [targetId] } },
+      { $addToSet: { following: targetId }, $inc: { followingCount: 1 } },
+      opts
+    );
+    if (followMe.modifiedCount > 0) {
+      const followThem = await User.updateOne(
+        { _id: targetId, followers: { $nin: [currentId] } },
+        { $addToSet: { followers: currentId }, $inc: { followersCount: 1 } },
+        opts
+      );
+      if (followThem.modifiedCount === 0) {
+        const e = new Error('關注資料不一致，請重試');
+        e.status = 409;
+        throw e;
+      }
+    }
+  }
+
+  let meQ = User.findById(currentId).select('following followingCount');
+  let themQ = User.findById(targetId).select('followersCount');
+  if (session) {
+    meQ = meQ.session(session);
+    themQ = themQ.session(session);
+  }
+  const [me, them] = await Promise.all([meQ.lean(), themQ.lean()]);
+
+  if (!me || !them) {
+    const e = new Error('讀取用戶資料失敗');
+    e.status = 503;
+    throw e;
+  }
+
+  const followingIds = followingIdsFromUser(me);
+  const followingAfter = (me.following || []).some((f) => f.equals(targetId));
+  const targetStr = targetId.toString();
+
+  if (followingAfter !== followingIds.includes(targetStr)) {
+    const e = new Error('關注資料不一致，請重試');
+    e.status = 409;
+    throw e;
+  }
+
+  return {
+    action: followingAfter ? 'followed' : 'unfollowed',
+    following: followingAfter,
+    followingCount: me.followingCount ?? 0,
+    followersCount: them.followersCount ?? 0,
+    user: {
+      followingIds,
+    },
+  };
+}
+
+async function executeFollowToggleTransaction(currentId, targetId, res) {
+  const run = () => runSocialFollowToggle(null, currentId, targetId);
+
+  let session;
+  try {
+    session = await mongoose.startSession();
+  } catch {
+    const result = await run();
+    return ok(res, keysToSnakeCase(result));
+  }
+
+  try {
+    session.startTransaction();
+    const result = await runSocialFollowToggle(session, currentId, targetId);
+    await session.commitTransaction();
+    return ok(res, keysToSnakeCase(result));
+  } catch (innerErr) {
+    if (session.inTransaction && session.inTransaction()) {
+      await session.abortTransaction();
+    }
+    if (isTransactionUnsupportedError(innerErr && innerErr.message)) {
+      const result = await run();
+      return ok(res, keysToSnakeCase(result));
+    }
+    throw innerErr;
+  } finally {
+    session.endSession();
+  }
+}
+
+/**
  * POST /api/social/toggle-follow
- * 原子操作：同步更新 A 的 following 與 B 的 followers，以及雙方計數器
+ * Body: targetUserId | target_user_id（與 /follow/:userId 行為相同：切換關注）
  */
 async function toggleFollow(req, res) {
   try {
@@ -669,51 +796,61 @@ async function toggleFollow(req, res) {
 
     const targetUserId = req.body?.targetUserId ?? req.body?.target_user_id;
     if (!targetUserId) return fail(res, '請提供 target_user_id', 400);
-    if (userId === targetUserId) return fail(res, '無法關注自己', 400);
+    if (String(userId) === String(targetUserId)) {
+      return fail(res, '無法關注自己', 400);
+    }
     if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
       return fail(res, 'targetUserId 格式無效', 400);
     }
+
     const targetId = new mongoose.Types.ObjectId(targetUserId);
     const currentId = new mongoose.Types.ObjectId(userId);
 
-    const current = await User.findById(currentId);
-    if (!current) return fail(res, '當前用戶不存在', 404);
-    const target = await User.findById(targetId);
-    if (!target) return fail(res, '目標用戶不存在', 404);
-
-    const following = current.following?.some((f) => f.equals(targetId)) ?? false;
-
-    const runAtomicFollow = async (session) => {
-      const opts = session ? { session } : {};
-      if (following) {
-        await User.findByIdAndUpdate(currentId, { $pull: { following: targetId }, $inc: { followingCount: -1 } }, opts);
-        await User.findByIdAndUpdate(targetId, { $pull: { followers: currentId }, $inc: { followersCount: -1 } }, opts);
-        return { action: 'unfollowed', following: false, followersCount: Math.max(0, (target.followersCount ?? 0) - 1) };
-      }
-      await User.findByIdAndUpdate(currentId, { $addToSet: { following: targetId }, $inc: { followingCount: 1 } }, opts);
-      await User.findByIdAndUpdate(targetId, { $addToSet: { followers: currentId }, $inc: { followersCount: 1 } }, opts);
-      return { action: 'followed', following: true, followersCount: (target.followersCount ?? 0) + 1 };
-    };
-
-    try {
-      const session = await mongoose.startSession();
-      session.startTransaction();
-      try {
-        const result = await runAtomicFollow(session);
-        await session.commitTransaction();
-        return ok(res, keysToSnakeCase(result));
-      } catch (txErr) {
-        await session.abortTransaction();
-        throw txErr;
-      } finally {
-        session.endSession();
-      }
-    } catch (_transactionNotSupported) {
-      const result = await runAtomicFollow(null);
-      return ok(res, keysToSnakeCase(result));
-    }
+    return await executeFollowToggleTransaction(currentId, targetId, res);
   } catch (err) {
+    if (err && err.status === 404) {
+      return fail(res, err.message, 404);
+    }
+    if (err && err.status === 409) {
+      return fail(res, err.message, 409);
+    }
     console.error('toggleFollow error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+/**
+ * POST /api/social/follow/:userId
+ * 路徑參數為目標用戶 _id；與 toggle-follow 相同邏輯（冪等、雙向同步、回傳雙方計數）
+ */
+async function followUserByParam(req, res) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, '未授權', 401);
+
+    const targetUserId = req.params?.userId;
+    if (!targetUserId || !String(targetUserId).trim()) {
+      return fail(res, '請提供路徑參數 userId', 400);
+    }
+    if (String(userId) === String(targetUserId)) {
+      return fail(res, '無法關注自己', 400);
+    }
+    if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return fail(res, 'userId 格式無效', 400);
+    }
+
+    const targetId = new mongoose.Types.ObjectId(targetUserId);
+    const currentId = new mongoose.Types.ObjectId(userId);
+
+    return await executeFollowToggleTransaction(currentId, targetId, res);
+  } catch (err) {
+    if (err && err.status === 404) {
+      return fail(res, err.message, 404);
+    }
+    if (err && err.status === 409) {
+      return fail(res, err.message, 409);
+    }
+    console.error('followUserByParam error:', err);
     return fail(res, '服務暫時不可用', 503);
   }
 }
@@ -721,6 +858,7 @@ async function toggleFollow(req, res) {
 module.exports = {
   toggleLike,
   toggleFollow,
+  followUserByParam,
   publishSocialPost,
   getFeed,
   getMyPosts,

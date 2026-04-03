@@ -187,7 +187,7 @@ async function start() {
       console.log(`  - GET  /api/social/me/posts  我的貼文（需 JWT）`);
       console.log(`  - GET  /api/social/me/liked-posts  已讚貼文（需 JWT）`);
       console.log(`  - POST /api/social/:id/like、/:id/comment、/:id/comment/:commentId/like  讚/評論/評論讚（需 JWT）`);
-      console.log(`  - POST /api/social/publish、toggle-like、toggle-follow、upload-image（需 JWT）`);
+      console.log(`  - POST /api/social/publish、toggle-like、toggle-follow、follow/:userId、upload-image（需 JWT）`);
       console.log(`  - GET/POST/PATCH/DELETE /api/routes/:id/reviews  評論 CRUD`);
       console.log(`  - /api/integration/travel, /shop, /tools  插件化服務（Mock 待對接）`);
       if (process.env.ENABLE_TEST_PURGE === 'true') {

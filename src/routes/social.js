@@ -22,6 +22,8 @@ router.post('/:id/comment', verifyJWT, socialController.addPostComment);
 
 router.post('/toggle-like', verifyJWT, socialController.toggleLike);
 router.post('/toggle-follow', verifyJWT, socialController.toggleFollow);
+/** 須在 /:id/like 之前，避免 follow 被當成 :id */
+router.post('/follow/:userId', verifyJWT, socialController.followUserByParam);
 
 /**
  * POST /api/social/upload-image

@@ -3,6 +3,7 @@ const { Resend } = require('resend');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { getJwtSecret } = require('../middleware/authMiddleware');
+const { followingIdsFromUser } = require('../utils/followingIds');
 
 /** 與 Resend 控制台 API Key 一致；環境變數名必須為 RESEND_API_KEY（值形如 re_asNjxfQ6...） */
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -291,6 +292,7 @@ async function verifyVerificationCode(email, code) {
     followingCount: updated.followingCount ?? 0,
     followersCount: updated.followersCount ?? 0,
     totalDistanceMeters: updated.totalDistanceMeters ?? 0,
+    followingIds: followingIdsFromUser(updated),
     isVerified: true,
     isExistingUser,
   };
