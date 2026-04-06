@@ -135,6 +135,29 @@ async function getFeed(req, res) {
 
     const feed = docs.map((doc) => mapPostDocToFeedItem(doc, viewerOid));
 
+    // Batch-fetch live followersCounts for all unique authors so the iOS client
+    // can seed SocialManager with real counts rather than defaulting to 0.
+    const rawAuthorIds = feed.map((f) => f.authorId).filter(Boolean);
+    const uniqueAuthorIds = [...new Set(rawAuthorIds)].filter((id) =>
+      mongoose.Types.ObjectId.isValid(id)
+    );
+    if (uniqueAuthorIds.length > 0) {
+      const authorDocs = await User.find({
+        _id: { $in: uniqueAuthorIds.map((id) => new mongoose.Types.ObjectId(id)) },
+      })
+        .select('followersCount')
+        .lean();
+      const countMap = {};
+      for (const a of authorDocs) {
+        countMap[a._id.toString()] = a.followersCount ?? 0;
+      }
+      for (const item of feed) {
+        if (item.authorId && countMap[item.authorId] !== undefined) {
+          item.authorFollowersCount = countMap[item.authorId];
+        }
+      }
+    }
+
     return ok(res, feed);
   } catch (err) {
     console.error('getFeed error:', err);
