@@ -22,7 +22,7 @@ const APPLE_REDIRECT_URI = process.env.APPLE_REDIRECT_URI;
 // ---------------------------------------------------------------------------
 const mockUsers = new Map(); // email -> { email, passwordHash, name, id }
 
-function generateToken(payload, expiresIn = '7d') {
+function generateToken(payload, expiresIn = '30d') {
   return jwt.sign(payload, getJwtSecret(), { expiresIn });
 }
 
