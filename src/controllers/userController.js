@@ -15,6 +15,7 @@ function profilePayload(user) {
     nickname: user.nickname ?? 'Explorer',
     avatarUrl: user.avatarUrl ?? '',
     bio: user.bio ?? '',
+    hometown: user.hometown ?? '',
     followingCount: user.followingCount ?? 0,
     followersCount: user.followersCount ?? 0,
     totalDistanceMeters: user.totalDistanceMeters ?? 0,
@@ -23,7 +24,7 @@ function profilePayload(user) {
   };
 }
 
-const ALLOWED_PROFILE_FIELDS = ['firstName', 'lastName', 'nickname', 'bio', 'avatarUrl'];
+const ALLOWED_PROFILE_FIELDS = ['firstName', 'lastName', 'nickname', 'bio', 'avatarUrl', 'hometown'];
 const NICKNAME_MIN = 1;
 const NICKNAME_MAX = 30;
 const BIO_MAX = 500;

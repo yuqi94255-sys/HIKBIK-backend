@@ -40,6 +40,10 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    hometown: {
+      type: String,
+      default: '',
+    },
     followingCount: {
       type: Number,
       default: 0,
