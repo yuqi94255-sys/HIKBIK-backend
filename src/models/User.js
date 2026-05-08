@@ -122,6 +122,14 @@ const userSchema = new mongoose.Schema(
         dateSaved: { type: Date, default: Date.now },
       },
     ],
+    /** 城市微路線收藏（對齊 GET /api/user/saved-routes） */
+    savedRoutes: [
+      {
+        citySlug:  { type: String, required: true, trim: true },
+        routeSlug: { type: String, required: true, trim: true },
+        dateSaved: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true }
 );

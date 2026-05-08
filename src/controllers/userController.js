@@ -60,6 +60,76 @@ async function getSavedParks(req, res) {
 }
 
 /**
+ * GET /api/user/saved-routes
+ */
+async function getSavedRoutes(req, res) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, '未授權', 401);
+
+    const user = await User.findById(userId).select('savedRoutes').lean();
+    if (!user) return fail(res, '用戶不存在', 404);
+
+    const routes = (user.savedRoutes ?? []).map((r) => ({
+      id:        r._id?.toString(),
+      citySlug:  r.citySlug,
+      routeSlug: r.routeSlug,
+      dateSaved: r.dateSaved,
+    }));
+
+    return ok(res, { routes });
+  } catch (err) {
+    console.error('getSavedRoutes error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+/**
+ * POST /api/user/saved-routes
+ * body: { citySlug, routeSlug }
+ */
+async function saveRoute(req, res) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, '未授權', 401);
+
+    const { citySlug, routeSlug } = req.body ?? {};
+    if (!citySlug || !routeSlug) return fail(res, '缺少 citySlug 或 routeSlug', 400);
+
+    await User.findByIdAndUpdate(userId, {
+      $addToSet: { savedRoutes: { citySlug, routeSlug, dateSaved: new Date() } },
+    });
+
+    return ok(res, { saved: true });
+  } catch (err) {
+    console.error('saveRoute error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+/**
+ * DELETE /api/user/saved-routes/:routeSlug
+ */
+async function unsaveRoute(req, res) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, '未授權', 401);
+
+    const { routeSlug } = req.params;
+    if (!routeSlug) return fail(res, '缺少 routeSlug', 400);
+
+    await User.findByIdAndUpdate(userId, {
+      $pull: { savedRoutes: { routeSlug } },
+    });
+
+    return ok(res, { removed: true });
+  } catch (err) {
+    console.error('unsaveRoute error:', err);
+    return fail(res, '服務暫時不可用', 503);
+  }
+}
+
+/**
  * GET /api/users/me
  */
 async function getProfile(req, res) {
@@ -446,6 +516,9 @@ module.exports = {
   updateProfile,
   uploadAvatar,
   getSavedParks,
+  getSavedRoutes,
+  saveRoute,
+  unsaveRoute,
   getPublicProfile,
   getUserProfile,
   getUserFollowing,
