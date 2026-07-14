@@ -16,6 +16,7 @@ const routeAssetsRouter = require('./src/routes/routeAssets');
 const socialRouter = require('./src/routes/social');
 const postsRouter = require('./src/routes/posts');
 const integrationRoutes = require('./src/routes/integrationRoutes');
+const aiRouter = require('./src/routes/ai');
 const parksRouter = require('./src/routes/parks');
 // 限流已改為空 middleware（見 src/middleware/rateLimiter.js），測試期不會 429
 const { authRateLimiter, integrationRateLimiter } = require('./src/middleware/rateLimiter');
@@ -111,6 +112,7 @@ app.use('/api/routes', routeAssetsRouter);
 app.use('/api/social', socialRouter);
 app.use('/api/posts', postsRouter);
 app.use('/api/integration', integrationRateLimiter, integrationRoutes);
+app.use('/api/ai', integrationRateLimiter, aiRouter);
 
 /** 測試資料 seed / purge：設 ENABLE_TEST_PURGE=true；用完請關閉並刪除此段 */
 if (process.env.ENABLE_TEST_PURGE === 'true') {
