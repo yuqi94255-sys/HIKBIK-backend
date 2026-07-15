@@ -107,6 +107,11 @@ router.post('/match-route', async (req, res) => {
   if (!query || typeof query !== 'string') {
     return res.status(400).json({ error: 'query (string) is required' });
   }
+  // 開關：預設關閉語意跳轉，讓每個 prompt 都真的走 AI 生成（方便測 AI 邏輯）。
+  // 要啟用「命中經典路線就攔截」時，在 Render 設 AI_MATCH_ENABLED=true。
+  if (process.env.AI_MATCH_ENABLED !== 'true') {
+    return res.json({ matched: false, reason: 'router-disabled' });
+  }
   if (!semanticRouter.isConfigured()) {
     return res.json({ matched: false, reason: 'router-not-configured' });
   }
