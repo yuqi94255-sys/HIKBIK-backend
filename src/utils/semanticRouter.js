@@ -14,10 +14,11 @@ const OPENAI_EMBED_URL = 'https://api.openai.com/v1/embeddings';
 const OPENAI_MODEL = 'text-embedding-3-small';
 
 // 相似度門檻：低於此值不攔截，交給 DeepSeek 生成。
-// ⚠️ 實測校準（text-embedding-3-small）：完美命中僅約 0.65，對題約 0.53。
-// 故門檻設 0.60 —— 攔得住強命中、又不會誤攔弱相關。可用 AI_MATCH_THRESHOLD 環境變數微調。
-// 上線後應 log 實際 similarity 分佈再收斂這個值。
-const DEFAULT_THRESHOLD = Number(process.env.AI_MATCH_THRESHOLD || 0.60);
+// ⚠️ 實測校準（text-embedding-3-small）：完美命中僅約 0.65，對題約 0.53，
+//    短口語（"Highway 1 Big Sur"）更低。門檻太高 → 明明有經典路線卻掉去 raw 生成一坨垃圾。
+//    多城/多段已在 App 端 gate 掉不會誤攔，故單段這裡放寬到 0.50，讓經典路線盡量接住。
+//    可用 AI_MATCH_THRESHOLD 環境變數微調；上線後 log 實際 similarity 分佈再收斂。
+const DEFAULT_THRESHOLD = Number(process.env.AI_MATCH_THRESHOLD || 0.50);
 
 function isConfigured() {
   return Boolean(
