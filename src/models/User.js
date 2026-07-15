@@ -130,6 +130,17 @@ const userSchema = new mongoose.Schema(
         dateSaved: { type: Date, default: Date.now },
       },
     ],
+    /** AI 方案：free（每日配額）/ vip（不限）。付費誘因＋堵盜刷。 */
+    plan: {
+      type: String,
+      enum: ['free', 'vip'],
+      default: 'free',
+    },
+    /** AI 每日用量：date=YYYY-MM-DD、count=當日已用次數（免費配額判斷用） */
+    aiUsage: {
+      date: { type: String, default: '' },
+      count: { type: Number, default: 0 },
+    },
   },
   { timestamps: true }
 );
