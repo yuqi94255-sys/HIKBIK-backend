@@ -18,6 +18,7 @@ const postsRouter = require('./src/routes/posts');
 const integrationRoutes = require('./src/routes/integrationRoutes');
 const aiRouter = require('./src/routes/ai');
 const parksRouter = require('./src/routes/parks');
+const tripPlansRouter = require('./src/routes/tripPlans');
 // 限流已改為空 middleware（見 src/middleware/rateLimiter.js），測試期不會 429
 const { authRateLimiter, integrationRateLimiter } = require('./src/middleware/rateLimiter');
 const aiQuota = require('./src/middleware/aiQuota'); // 登入+每日配額+VIP（AI_AUTH_REQUIRED 開關，預設 off）
@@ -109,6 +110,8 @@ app.use('/api/users', usersRouter);
 /** 與 /api/users 相同路由，兼容前端單數路徑 /api/user/* */
 app.use('/api/user', usersRouter);
 app.use('/api/me', require('./src/middleware/authMiddleware').verifyJWT, meRouter);
+/** 使用者行程計劃（AI / DIY，草稿 / 已存）——綁 userId，跨裝置持久化 */
+app.use('/api/trips', require('./src/middleware/authMiddleware').verifyJWT, tripPlansRouter);
 app.use('/api/routes', routeAssetsRouter);
 app.use('/api/social', socialRouter);
 app.use('/api/posts', postsRouter);
